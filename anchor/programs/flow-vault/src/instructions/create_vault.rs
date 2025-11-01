@@ -54,7 +54,7 @@ pub struct CreateVault<'info> {
     payer = agent,
     token::mint = token_mint,
     token::authority = vault,
-    seeds = [b"vault_token_account", vault.key().as_ref()],
+    seeds = [b"vault_token_account", agent.key().as_ref()],
     bump
   )]
   pub vault_token_account: Account<'info, TokenAccount>,

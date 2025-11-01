@@ -1,8 +1,11 @@
 use anchor_lang::prelude::*;
-mod state;
-mod instructions;
-mod errors;
-mod events;
+
+pub mod errors;
+pub mod events;
+pub mod instructions;
+pub mod state;
+
+use instructions::*;
 
 declare_id!("GACf7MzzDobMqJgDGfnaDJe7nCj5UoBoh93xLziomEoX");
 
@@ -10,11 +13,15 @@ declare_id!("GACf7MzzDobMqJgDGfnaDJe7nCj5UoBoh93xLziomEoX");
 pub mod flow_vault {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        msg!("Greetings from: {:?}", ctx.program_id);
-        Ok(())
+    pub fn create_vault(ctx: Context<CreateVault>, deposit_amount: u64) -> Result<()> {
+        create_vault::handler(ctx, deposit_amount)
+    }
+
+    pub fn settle_batch(ctx: Context<SettleBatch>, amount: u64, nonce: u64) -> Result<()> {
+        settle_batch::handler(ctx, amount, nonce)
+    }
+
+    pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
+        withdraw::handler(ctx)
     }
 }
-
-#[derive(Accounts)]
-pub struct Initialize {}
