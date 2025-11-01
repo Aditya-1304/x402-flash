@@ -4,7 +4,7 @@ use anchor_lang::solana_program::{
     sysvar::instructions::{self, load_instruction_at_checked},
 };
 use solana_program::ed25519_program;
-use crate::state::{Provider, Vault};
+use crate::state::{GlobalConfig, Provider, Vault};
 use crate::errors::FlowError;
 use crate::events::Settlement;
 
@@ -15,8 +15,9 @@ pub fn handler(ctx: Context<SettleBatch>, amount: u64, nonce: u64) -> Result<()>
     // 2. Business logic checks
     let vault = &mut ctx.accounts.vault;
     let clock = Clock::get()?;
+    let config = &ctx.accounts.global_config;
 
-    if amount == 0 {
+    if amount < config.settle_threshold {
         return err!(FlowError::ZeroAmount);
     }
     if nonce != vault.nonce.checked_add(1).ok_or(FlowError::Overflow)? {
@@ -121,6 +122,12 @@ pub struct SettleBatch<'info> {
         constraint = vault_token_account.key() == vault.vault_token_account
     )]
     pub vault_token_account: Account<'info, TokenAccount>,
+
+    #[account(
+      seeds = [b"config"],
+      bump
+    )]
+    pub global_config: Account<'info, GlobalConfig>,
 
     #[account(has_one = destination)]
     pub provider: Account<'info, Provider>,
