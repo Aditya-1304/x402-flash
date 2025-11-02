@@ -67,7 +67,7 @@ pub struct Withdraw<'info> {
 
   #[account(
     mut,
-    seeds = [b"vault_token_account", vault.key().as_ref()],
+    seeds = [b"vault_token_account", agent.key().as_ref()],
     bump,
     constraint = vault_token_account.key() == vault.vault_token_account
   )]

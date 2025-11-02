@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::GlobalConfig;
 
-pub fn handler(ctx: Context<EmergencyPause>, paused: bool) -> Result<()> {
+pub fn handler(_ctx: Context<EmergencyPause>, _paused: bool) -> Result<()> {
     msg!("Emergency pause triggered by admin");
     Ok(())
 }

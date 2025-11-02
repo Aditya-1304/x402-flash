@@ -83,7 +83,7 @@ fn verify_signature(ctx: &Context<SettleBatch>, amount: u64, nonce: u64) -> Resu
         return err!(FlowError::InvalidSignature);
     }
 
-    let message = &ed25519_ix.data[48..];
+    let message = &ed25519_ix.data[112..];
     let mut expected_message = Vec::new();
     expected_message.extend_from_slice(b"X402_FLOW_SETTLE");
     expected_message.extend_from_slice(&ctx.accounts.vault.key().to_bytes());

@@ -36,4 +36,8 @@ pub mod flow_vault {
     pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
         withdraw::handler(ctx)
     }
+
+    pub fn emergency_pause(ctx: Context<EmergencyPause>, paused: bool) -> Result<()> {
+        emergency_pause::handler(ctx, paused)
+    }
 }
