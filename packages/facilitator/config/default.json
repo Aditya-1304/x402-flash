@@ -1,0 +1,10 @@
+{
+  "port": 8080,
+  "rpcUrl": "https://api.devnet.solana.com",
+  "facilitatorKeypairPath": "~/.config/solana/id.json",
+  "settlement": {
+    "threshold": 200000,
+    "periodMs": 30000
+  },
+  "logLevel": "info"
+}

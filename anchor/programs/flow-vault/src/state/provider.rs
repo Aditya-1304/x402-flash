@@ -1,10 +1,23 @@
 use anchor_lang::prelude::*;
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
+pub enum PaymentProtocol {
+  NativeSpl,
+  AtxpBridge,
+}
+
 #[account]
 pub struct Provider {
   pub authority: Pubkey,
   pub destination: Pubkey,
-  pub reserved: [u8; 128],
+
+  /// [BOUNTY: Visa TAP]
+  pub visa_merchant_id: Option<String>,
+
+  /// [BOUNTY: ATXP]
+  pub protocol: PaymentProtocol,
+
+  pub reserved: [u8; 90],
 
 }
 
@@ -13,12 +26,14 @@ impl Default for Provider {
     Self {
       authority: Pubkey::default(),
       destination: Pubkey::default(),
-      reserved: [0u8; 128],
+      visa_merchant_id: None,
+      protocol: PaymentProtocol::NativeSpl,
+      reserved: [0u8; 90],
     }
   }
 }
 
 impl Provider {
     // discriminator + authority + destination + reserved
-    pub const LEN: usize = 8 + 32 + 32 + 128;
+     pub const LEN: usize = 8 + 32 + 32 + (1 + 4 + 32) + 1 + 90;
 }

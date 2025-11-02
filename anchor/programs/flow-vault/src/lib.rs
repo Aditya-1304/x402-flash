@@ -6,6 +6,7 @@ pub mod instructions;
 pub mod state;
 
 use instructions::*;
+use state::PaymentProtocol;
 
 declare_id!("GACf7MzzDobMqJgDGfnaDJe7nCj5UoBoh93xLziomEoX");
 
@@ -21,8 +22,13 @@ pub mod flow_vault {
         init_config::handler(ctx, settle_threshold, fee_bps)
     }
 
-    pub fn register_provider(ctx: Context<RegisterProvider>) -> Result<()> {
-        register_provider::handler(ctx)
+    /// [BOUNTY] Updated function signature
+    pub fn register_provider(
+        ctx: Context<RegisterProvider>,
+        visa_merchant_id: Option<String>,
+        protocol: PaymentProtocol,
+    ) -> Result<()> {
+        register_provider::handler(ctx, visa_merchant_id, protocol)
     }
 
     pub fn create_vault(ctx: Context<CreateVault>, deposit_amount: u64) -> Result<()> {

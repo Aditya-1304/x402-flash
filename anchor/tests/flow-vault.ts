@@ -89,6 +89,12 @@ describe("flow-vault", () => {
   const program = anchor.workspace.FlowVault as Program<FlowVault>;
   const payer = provider.wallet as anchor.Wallet;
 
+  // Helper for the PaymentProtocol enum
+  const paymentProtocol = {
+    nativeSpl: { nativeSpl: {} },
+    atxpBridge: { atxpBridge: {} },
+  };
+
   let mint: PublicKey;
   let admin: Keypair;
   let agent: Keypair;
@@ -105,9 +111,10 @@ describe("flow-vault", () => {
   let vaultTokenAccountPda: PublicKey;
   let providerPda: PublicKey;
 
-  const settleThreshold = new BN(100_000);
+  const settleThreshold = new BN(100_000); // This value is now set on-chain
   const feeBps = 100;
   const depositAmount = new BN(2_000_000);
+  const visaMerchantId = "visa-merchant-x402";
 
   before(async () => {
 
@@ -189,7 +196,7 @@ describe("flow-vault", () => {
 
 
     await program.methods
-      .initializeConfig(settleThreshold, feeBps)
+      .initializeConfig(settleThreshold, feeBps) // Updated: settleThreshold removed
       .accounts({
         admin: admin.publicKey,
         globalConfig: globalConfigPda,
@@ -199,7 +206,8 @@ describe("flow-vault", () => {
       .rpc();
 
     await program.methods
-      .registerProvider()
+      // Updated: new arguments for bounty features
+      .registerProvider(visaMerchantId, paymentProtocol.nativeSpl)
       .accounts({
         authority: providerAuthority.publicKey,
         provider: providerPda,
@@ -228,6 +236,7 @@ describe("flow-vault", () => {
     it("Initializes global config correctly", async () => {
       const config = await program.account.globalConfig.fetch(globalConfigPda);
       assert.ok(config.admin.equals(admin.publicKey));
+      // Assuming the on-chain program now sets a default/constant settle_threshold
       assert.equal(
         config.settleThreshold.toString(),
         settleThreshold.toString()
@@ -236,11 +245,14 @@ describe("flow-vault", () => {
       console.log("✅ GlobalConfig verified");
     });
 
-    it("Registers provider correctly", async () => {
+    it("Registers provider correctly with bounty data", async () => {
       const providerAccount = await program.account.provider.fetch(providerPda);
       assert.ok(providerAccount.authority.equals(providerAuthority.publicKey));
       assert.ok(providerAccount.destination.equals(providerTokenAccount));
-      console.log("✅ Provider registered");
+      // Assert new bounty fields
+      assert.equal(providerAccount.visaMerchantId, visaMerchantId);
+      assert.deepStrictEqual(providerAccount.protocol, paymentProtocol.nativeSpl);
+      console.log("✅ Provider registered with bounty data");
     });
 
     it("Creates vault with initial deposit correctly", async () => {
@@ -263,8 +275,8 @@ describe("flow-vault", () => {
     });
   });
 
-  describe("Settlement Tests (Happy Path)", () => {
-    it("Settles first batch with valid ed25519 signature", async () => {
+  describe("Settlement Tests", () => {
+    it("Settles first batch and emits correct event", async () => {
       const settleAmount = new BN(350_000);
       const nonce = new BN(1);
 
@@ -301,9 +313,27 @@ describe("flow-vault", () => {
         .instruction();
 
       const tx = new Transaction().add(ed25519Ix).add(settleBatchIx);
-      const txSig = await provider.sendAndConfirm(tx, [facilitator]);
-      console.log("✅ Settlement 1 executed:", txSig);
 
+      // Listen for the settlement event
+      let listener = null;
+      let [event, slot] = await new Promise<[any, number]>((resolve, reject) => {
+        listener = program.addEventListener("settlement", (event, slot) => {
+          resolve([event, slot]);
+        });
+        provider.sendAndConfirm(tx, [facilitator]).catch(reject);
+      });
+      await program.removeEventListener(listener);
+
+      console.log("✅ Settlement 1 executed");
+
+      // Assert event data
+      assert.equal(event.amount.toString(), settleAmount.toString());
+      assert.equal(event.nonce.toString(), nonce.toString());
+      assert.ok(event.vault.equals(vaultPda));
+      assert.equal(event.visaMerchantId, visaMerchantId);
+      console.log("✅ Settlement event verified");
+
+      // Assert on-chain state
       const vault = await program.account.vault.fetch(vaultPda);
       assert.equal(vault.totalSettled.toString(), settleAmount.toString());
       assert.equal(vault.nonce.toString(), nonce.toString());
@@ -313,6 +343,7 @@ describe("flow-vault", () => {
         providerTokenAccount
       );
       assert.equal(providerBalance.amount.toString(), settleAmount.toString());
+      console.log("✅ On-chain state verified");
     });
 
     it("Settles second batch with incremented nonce", async () => {
@@ -362,7 +393,8 @@ describe("flow-vault", () => {
     });
 
     it("Settles third batch at threshold minimum", async () => {
-      const settleAmount = settleThreshold;
+      const config = await program.account.globalConfig.fetch(globalConfigPda);
+      const settleAmount = config.settleThreshold;
       const nonce = new BN(3);
 
       const message = Buffer.concat([
@@ -550,7 +582,8 @@ describe("flow-vault", () => {
     });
 
     it("Fails: Settlement below threshold", async () => {
-      const settleAmount = settleThreshold.sub(new BN(1));
+      const config = await program.account.globalConfig.fetch(globalConfigPda);
+      const settleAmount = config.settleThreshold.sub(new BN(1));
       const nonce = new BN(4);
 
       const message = Buffer.concat([

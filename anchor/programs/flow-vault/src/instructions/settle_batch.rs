@@ -57,6 +57,7 @@ pub fn handler(ctx: Context<SettleBatch>, amount: u64, nonce: u64) -> Result<()>
         agent: vault.agent,
         amount,
         nonce,
+        visa_merchant_id: ctx.accounts.provider.visa_merchant_id.clone(),
     });
 
     Ok(())

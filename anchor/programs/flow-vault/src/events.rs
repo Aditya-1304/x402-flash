@@ -15,6 +15,9 @@ pub struct Settlement {
     pub agent: Pubkey,
     pub amount: u64,
     pub nonce: u64,
+
+    /// [BOUNTY: Visa TAP]
+    pub visa_merchant_id: Option<String>,
 }
 
 #[event]
