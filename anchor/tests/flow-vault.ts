@@ -1,5 +1,5 @@
 import * as anchor from "@coral-xyz/anchor";
-import { Program, BN } from "@coral-xyz/anchor";
+import { Program, BN, AnchorError } from "@coral-xyz/anchor";
 import { FlowVault } from "../target/types/flow_vault";
 import {
   Keypair,
@@ -19,6 +19,69 @@ import {
 import { assert } from "chai";
 import nacl from "tweetnacl";
 
+
+async function assertRejects(
+  promise: Promise<any>,
+  errorCode: string,
+  message?: string
+) {
+  try {
+    await promise;
+    assert.fail(
+      `Expected promise to reject with ${errorCode}, but it succeeded.`
+    );
+  } catch (err) {
+
+    if (err instanceof AnchorError) {
+      assert.strictEqual(
+        err.error.errorCode.code,
+        errorCode,
+        message || `Expected error code ${errorCode}, but got ${err.error.errorCode.code}`
+      );
+    }
+    else if (err.logs || err.transactionLogs) {
+      const logs = err.logs || err.transactionLogs;
+
+      const errorLine = logs.find((log: string) => log.includes("Error Code:"));
+      if (errorLine) {
+        const match = errorLine.match(/Error Code: (\w+)\./);
+        if (match && match[1]) {
+          assert.strictEqual(
+            match[1],
+            errorCode,
+            message || `Expected error code ${errorCode}, but got ${match[1]}`
+          );
+          return;
+        }
+      }
+
+      const txErrorLine = err.message || err.transactionMessage || "";
+      const txMatch = txErrorLine.match(/custom program error: 0x(\w+)/);
+      if (txMatch && txMatch[1]) {
+        if (txMatch[1] === "2" && errorCode === "InvalidSignature") {
+          assert.ok(
+            true,
+            "Correctly failed in ed25519 program (0x2) as expected for invalid signature"
+          );
+          return;
+        }
+      }
+
+      if (err.message && err.message.includes(errorCode)) {
+        assert.ok(true, `Correctly failed with constraint: ${errorCode}`);
+        return;
+      }
+
+      console.error("Could not parse error code from logs:", logs);
+      assert.fail("Could not parse Anchor error code from logs.");
+    }
+    else {
+      console.error(err);
+      assert.fail(`Expected AnchorError, but got ${err.constructor.name}`);
+    }
+  }
+}
+
 describe("flow-vault", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
@@ -31,42 +94,43 @@ describe("flow-vault", () => {
   let agent: Keypair;
   let facilitator: Keypair;
   let providerAuthority: Keypair;
+  let randomUser: Keypair;
 
   let agentTokenAccount: PublicKey;
   let providerTokenAccount: PublicKey;
+  let randomUserTokenAccount: PublicKey;
 
   let globalConfigPda: PublicKey;
   let vaultPda: PublicKey;
   let vaultTokenAccountPda: PublicKey;
   let providerPda: PublicKey;
 
-  const settleThreshold = new BN(100_000); // 0.1 USDC (6 decimals)
-  const feeBps = 100; // 1%
-  const depositAmount = new BN(2_000_000); // 2 USDC
+  const settleThreshold = new BN(100_000);
+  const feeBps = 100;
+  const depositAmount = new BN(2_000_000);
 
   before(async () => {
-    // Generate keypairs
+
     admin = Keypair.generate();
     agent = Keypair.generate();
     facilitator = Keypair.generate();
     providerAuthority = Keypair.generate();
+    randomUser = Keypair.generate();
 
-    // Airdrop SOL
     const airdropSigs = await Promise.all([
       provider.connection.requestAirdrop(admin.publicKey, 5e9),
       provider.connection.requestAirdrop(agent.publicKey, 5e9),
       provider.connection.requestAirdrop(facilitator.publicKey, 2e9),
       provider.connection.requestAirdrop(providerAuthority.publicKey, 2e9),
+      provider.connection.requestAirdrop(randomUser.publicKey, 2e9),
     ]);
 
-    // Wait for confirmations
     await Promise.all(
       airdropSigs.map((sig) =>
         provider.connection.confirmTransaction(sig, "confirmed")
       )
     );
 
-    // Create mint (USDC mock with 6 decimals)
     mint = await createMint(
       provider.connection,
       payer.payer,
@@ -75,32 +139,34 @@ describe("flow-vault", () => {
       6
     );
 
-    // Create token accounts
-    agentTokenAccount = await createAccount(
-      provider.connection,
-      payer.payer,
-      mint,
-      agent.publicKey
-    );
+    [agentTokenAccount, providerTokenAccount, randomUserTokenAccount] =
+      await Promise.all([
+        createAccount(provider.connection, payer.payer, mint, agent.publicKey),
+        createAccount(
+          provider.connection,
+          payer.payer,
+          mint,
+          providerAuthority.publicKey
+        ),
+        createAccount(
+          provider.connection,
+          payer.payer,
+          mint,
+          randomUser.publicKey
+        ),
+      ]);
 
-    providerTokenAccount = await createAccount(
-      provider.connection,
-      payer.payer,
-      mint,
-      providerAuthority.publicKey
-    );
 
-    // Mint tokens to agent
     await mintTo(
       provider.connection,
       payer.payer,
       mint,
       agentTokenAccount,
       admin,
-      10_000_000 // 10 USDC
+      10_000_000
     );
 
-    // Derive PDAs
+
     [globalConfigPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("config")],
       program.programId
@@ -120,10 +186,9 @@ describe("flow-vault", () => {
       [Buffer.from("provider"), providerAuthority.publicKey.toBuffer()],
       program.programId
     );
-  });
 
-  it("Initializes global config", async () => {
-    const tx = await program.methods
+
+    await program.methods
       .initializeConfig(settleThreshold, feeBps)
       .accounts({
         admin: admin.publicKey,
@@ -133,16 +198,7 @@ describe("flow-vault", () => {
       .signers([admin])
       .rpc();
 
-    console.log("✅ GlobalConfig initialized:", tx);
-
-    const config = await program.account.globalConfig.fetch(globalConfigPda);
-    assert.ok(config.admin.equals(admin.publicKey));
-    assert.equal(config.settleThreshold.toString(), settleThreshold.toString());
-    assert.equal(config.feeBps, feeBps);
-  });
-
-  it("Registers a provider", async () => {
-    const tx = await program.methods
+    await program.methods
       .registerProvider()
       .accounts({
         authority: providerAuthority.publicKey,
@@ -153,15 +209,7 @@ describe("flow-vault", () => {
       .signers([providerAuthority])
       .rpc();
 
-    console.log("✅ Provider registered:", tx);
-
-    const provider = await program.account.provider.fetch(providerPda);
-    assert.ok(provider.authority.equals(providerAuthority.publicKey));
-    assert.ok(provider.destination.equals(providerTokenAccount));
-  });
-
-  it("Creates a vault with initial deposit", async () => {
-    const tx = await program.methods
+    await program.methods
       .createVault(depositAmount)
       .accounts({
         agent: agent.publicKey,
@@ -174,135 +222,474 @@ describe("flow-vault", () => {
       } as any)
       .signers([agent])
       .rpc();
-
-    console.log("✅ Vault created:", tx);
-
-    const vault = await program.account.vault.fetch(vaultPda);
-    assert.ok(vault.agent.equals(agent.publicKey));
-    assert.ok(vault.tokenMint.equals(mint));
-    assert.equal(vault.depositAmount.toString(), depositAmount.toString());
-    assert.equal(vault.totalSettled.toString(), "0");
-    assert.equal(vault.nonce.toString(), "0");
-
-    // Check token balance
-    const vaultTokenAccountInfo = await getAccount(
-      provider.connection,
-      vaultTokenAccountPda
-    );
-    assert.equal(
-      vaultTokenAccountInfo.amount.toString(),
-      depositAmount.toString()
-    );
   });
 
-  it("Settles a batch with ed25519 signature", async () => {
-    const settleAmount = new BN(350_000); // 0.35 USDC
-    const nonce = new BN(1);
-
-    // Build canonical message
-    const message = Buffer.concat([
-      Buffer.from("X402_FLOW_SETTLE"),
-      vaultPda.toBuffer(),
-      providerPda.toBuffer(),
-      settleAmount.toArrayLike(Buffer, "le", 8),
-      nonce.toArrayLike(Buffer, "le", 8),
-    ]);
-
-    // Sign with tweetnacl (CommonJS compatible)
-    const signature = nacl.sign.detached(message, agent.secretKey);
-    const publicKey = agent.publicKey.toBytes();
-
-    // Create ed25519 instruction
-    const ed25519Ix = Ed25519Program.createInstructionWithPublicKey({
-      publicKey,
-      message,
-      signature,
+  describe("Initialization Tests", () => {
+    it("Initializes global config correctly", async () => {
+      const config = await program.account.globalConfig.fetch(globalConfigPda);
+      assert.ok(config.admin.equals(admin.publicKey));
+      assert.equal(
+        config.settleThreshold.toString(),
+        settleThreshold.toString()
+      );
+      assert.equal(config.feeBps, feeBps);
+      console.log("✅ GlobalConfig verified");
     });
 
-    // Create settle_batch instruction
-    const settleBatchIx = await program.methods
-      .settleBatch(settleAmount, nonce)
-      .accounts({
-        facilitator: facilitator.publicKey,
-        agent: agent.publicKey,
-        vault: vaultPda,
-        vaultTokenAccount: vaultTokenAccountPda,
-        globalConfig: globalConfigPda,
-        provider: providerPda,
-        destination: providerTokenAccount,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-      } as any)
-      .instruction();
+    it("Registers provider correctly", async () => {
+      const providerAccount = await program.account.provider.fetch(providerPda);
+      assert.ok(providerAccount.authority.equals(providerAuthority.publicKey));
+      assert.ok(providerAccount.destination.equals(providerTokenAccount));
+      console.log("✅ Provider registered");
+    });
 
-    // Combine into single transaction
-    const tx = new Transaction().add(ed25519Ix).add(settleBatchIx);
+    it("Creates vault with initial deposit correctly", async () => {
+      const vault = await program.account.vault.fetch(vaultPda);
+      assert.ok(vault.agent.equals(agent.publicKey));
+      assert.ok(vault.tokenMint.equals(mint));
+      assert.equal(vault.depositAmount.toString(), depositAmount.toString());
+      assert.equal(vault.totalSettled.toString(), "0");
+      assert.equal(vault.nonce.toString(), "0");
 
-    const txSig = await provider.sendAndConfirm(tx, [facilitator]);
-    console.log("✅ Settlement executed:", txSig);
-
-    // Verify vault state
-    const vault = await program.account.vault.fetch(vaultPda);
-    assert.equal(vault.totalSettled.toString(), settleAmount.toString());
-    assert.equal(vault.nonce.toString(), nonce.toString());
-
-    // Verify provider received tokens
-    const providerBalance = await getAccount(
-      provider.connection,
-      providerTokenAccount
-    );
-    assert.equal(providerBalance.amount.toString(), settleAmount.toString());
+      const vaultTokenAccountInfo = await getAccount(
+        provider.connection,
+        vaultTokenAccountPda
+      );
+      assert.equal(
+        vaultTokenAccountInfo.amount.toString(),
+        depositAmount.toString()
+      );
+      console.log("✅ Vault created and funded");
+    });
   });
 
-  it("Withdraws remaining funds", async () => {
-    const vaultBefore = await program.account.vault.fetch(vaultPda);
-    const remainingAmount = vaultBefore.depositAmount.sub(
-      vaultBefore.totalSettled
-    );
+  describe("Settlement Tests (Happy Path)", () => {
+    it("Settles first batch with valid ed25519 signature", async () => {
+      const settleAmount = new BN(350_000);
+      const nonce = new BN(1);
 
-    const tx = await program.methods
-      .withdraw()
-      .accounts({
-        agent: agent.publicKey,
-        vault: vaultPda,
-        vaultTokenAccount: vaultTokenAccountPda,
-        agentTokenAccount: agentTokenAccount,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      } as any)
-      .signers([agent])
-      .rpc();
+      const message = Buffer.concat([
+        Buffer.from("X402_FLOW_SETTLE"),
+        vaultPda.toBuffer(),
+        providerPda.toBuffer(),
+        settleAmount.toArrayLike(Buffer, "le", 8),
+        nonce.toArrayLike(Buffer, "le", 8),
+      ]);
 
-    console.log("✅ Withdrawal executed:", tx);
+      const signature = nacl.sign.detached(message, agent.secretKey);
+      const publicKey = agent.publicKey.toBytes();
 
-    // Verify vault is closed
-    try {
-      await program.account.vault.fetch(vaultPda);
-      assert.fail("Vault should be closed");
-    } catch (err) {
-      assert.ok(err.toString().includes("Account does not exist"));
-    }
+      const ed25519Ix = Ed25519Program.createInstructionWithPublicKey({
+        publicKey,
+        message,
+        signature,
+      });
 
-    // Verify agent received tokens back
-    const agentBalance = await getAccount(
-      provider.connection,
-      agentTokenAccount
-    );
-    const expectedBalance = new BN(10_000_000)
-      .sub(depositAmount)
-      .add(remainingAmount);
-    assert.equal(agentBalance.amount.toString(), expectedBalance.toString());
+      const settleBatchIx = await program.methods
+        .settleBatch(settleAmount, nonce)
+        .accounts({
+          facilitator: facilitator.publicKey,
+          agent: agent.publicKey,
+          vault: vaultPda,
+          vaultTokenAccount: vaultTokenAccountPda,
+          globalConfig: globalConfigPda,
+          provider: providerPda,
+          destination: providerTokenAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        } as any)
+        .instruction();
+
+      const tx = new Transaction().add(ed25519Ix).add(settleBatchIx);
+      const txSig = await provider.sendAndConfirm(tx, [facilitator]);
+      console.log("✅ Settlement 1 executed:", txSig);
+
+      const vault = await program.account.vault.fetch(vaultPda);
+      assert.equal(vault.totalSettled.toString(), settleAmount.toString());
+      assert.equal(vault.nonce.toString(), nonce.toString());
+
+      const providerBalance = await getAccount(
+        provider.connection,
+        providerTokenAccount
+      );
+      assert.equal(providerBalance.amount.toString(), settleAmount.toString());
+    });
+
+    it("Settles second batch with incremented nonce", async () => {
+      const settleAmount = new BN(200_000);
+      const nonce = new BN(2);
+
+      const message = Buffer.concat([
+        Buffer.from("X402_FLOW_SETTLE"),
+        vaultPda.toBuffer(),
+        providerPda.toBuffer(),
+        settleAmount.toArrayLike(Buffer, "le", 8),
+        nonce.toArrayLike(Buffer, "le", 8),
+      ]);
+
+      const signature = nacl.sign.detached(message, agent.secretKey);
+      const publicKey = agent.publicKey.toBytes();
+
+      const ed25519Ix = Ed25519Program.createInstructionWithPublicKey({
+        publicKey,
+        message,
+        signature,
+      });
+
+      const settleBatchIx = await program.methods
+        .settleBatch(settleAmount, nonce)
+        .accounts({
+          facilitator: facilitator.publicKey,
+          agent: agent.publicKey,
+          vault: vaultPda,
+          vaultTokenAccount: vaultTokenAccountPda,
+          globalConfig: globalConfigPda,
+          provider: providerPda,
+          destination: providerTokenAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        } as any)
+        .instruction();
+
+      const tx = new Transaction().add(ed25519Ix).add(settleBatchIx);
+      const txSig = await provider.sendAndConfirm(tx, [facilitator]);
+      console.log("✅ Settlement 2 executed:", txSig);
+
+      const vault = await program.account.vault.fetch(vaultPda);
+      const expectedTotal = new BN(350_000).add(new BN(200_000));
+      assert.equal(vault.totalSettled.toString(), expectedTotal.toString());
+      assert.equal(vault.nonce.toString(), nonce.toString());
+    });
+
+    it("Settles third batch at threshold minimum", async () => {
+      const settleAmount = settleThreshold;
+      const nonce = new BN(3);
+
+      const message = Buffer.concat([
+        Buffer.from("X402_FLOW_SETTLE"),
+        vaultPda.toBuffer(),
+        providerPda.toBuffer(),
+        settleAmount.toArrayLike(Buffer, "le", 8),
+        nonce.toArrayLike(Buffer, "le", 8),
+      ]);
+
+      const signature = nacl.sign.detached(message, agent.secretKey);
+      const publicKey = agent.publicKey.toBytes();
+
+      const ed25519Ix = Ed25519Program.createInstructionWithPublicKey({
+        publicKey,
+        message,
+        signature,
+      });
+
+      const settleBatchIx = await program.methods
+        .settleBatch(settleAmount, nonce)
+        .accounts({
+          facilitator: facilitator.publicKey,
+          agent: agent.publicKey,
+          vault: vaultPda,
+          vaultTokenAccount: vaultTokenAccountPda,
+          globalConfig: globalConfigPda,
+          provider: providerPda,
+          destination: providerTokenAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        } as any)
+        .instruction();
+
+      const tx = new Transaction().add(ed25519Ix).add(settleBatchIx);
+      const txSig = await provider.sendAndConfirm(tx, [facilitator]);
+      console.log("✅ Settlement 3 executed (threshold):", txSig);
+
+      const vault = await program.account.vault.fetch(vaultPda);
+      assert.equal(vault.nonce.toString(), nonce.toString());
+    });
   });
 
-  it("Tests emergency pause (admin only)", async () => {
-    const tx = await program.methods
-      .emergencyPause(true)
-      .accounts({
-        admin: admin.publicKey,
-        globalConfig: globalConfigPda,
-      } as any)
-      .signers([admin])
-      .rpc();
+  describe("Security & Attack Prevention Tests", () => {
+    it("Fails: Replay attack (same nonce)", async () => {
+      const settleAmount = new BN(100_000);
+      const nonce = new BN(3);
+      const message = Buffer.concat([
+        Buffer.from("X402_FLOW_SETTLE"),
+        vaultPda.toBuffer(),
+        providerPda.toBuffer(),
+        settleAmount.toArrayLike(Buffer, "le", 8),
+        nonce.toArrayLike(Buffer, "le", 8),
+      ]);
 
-    console.log("✅ Emergency pause triggered:", tx);
+      const signature = nacl.sign.detached(message, agent.secretKey);
+      const publicKey = agent.publicKey.toBytes();
+
+      const ed25519Ix = Ed25519Program.createInstructionWithPublicKey({
+        publicKey,
+        message,
+        signature,
+      });
+
+      const settleBatchIx = await program.methods
+        .settleBatch(settleAmount, nonce)
+        .accounts({
+          facilitator: facilitator.publicKey,
+          agent: agent.publicKey,
+          vault: vaultPda,
+          vaultTokenAccount: vaultTokenAccountPda,
+          globalConfig: globalConfigPda,
+          provider: providerPda,
+          destination: providerTokenAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        } as any)
+        .instruction();
+
+      const tx = new Transaction().add(ed25519Ix).add(settleBatchIx);
+      const promise = provider.sendAndConfirm(tx, [facilitator]);
+
+      await assertRejects(
+        promise,
+        "InvalidNonce",
+        "Should reject replay attack"
+      );
+      console.log("✅ Replay attack prevented");
+    });
+
+    it("Fails: Invalid signature (wrong signer)", async () => {
+      const settleAmount = new BN(100_000);
+      const nonce = new BN(4);
+
+      const message = Buffer.concat([
+        Buffer.from("X402_FLOW_SETTLE"),
+        vaultPda.toBuffer(),
+        providerPda.toBuffer(),
+        settleAmount.toArrayLike(Buffer, "le", 8),
+        nonce.toArrayLike(Buffer, "le", 8),
+      ]);
+
+      const signature = nacl.sign.detached(message, facilitator.secretKey);
+      const publicKey = agent.publicKey.toBytes();
+
+      const ed25519Ix = Ed25519Program.createInstructionWithPublicKey({
+        publicKey,
+        message,
+        signature,
+      });
+
+      const settleBatchIx = await program.methods
+        .settleBatch(settleAmount, nonce)
+        .accounts({
+          facilitator: facilitator.publicKey,
+          agent: agent.publicKey,
+          vault: vaultPda,
+          vaultTokenAccount: vaultTokenAccountPda,
+          globalConfig: globalConfigPda,
+          provider: providerPda,
+          destination: providerTokenAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        } as any)
+        .instruction();
+
+      const tx = new Transaction().add(ed25519Ix).add(settleBatchIx);
+      const promise = provider.sendAndConfirm(tx, [facilitator]);
+
+      await assertRejects(
+        promise,
+        "InvalidSignature",
+        "Should reject invalid signature"
+      );
+      console.log("✅ Invalid signature rejected");
+    });
+
+    it("Fails: Insufficient funds", async () => {
+      const vault = await program.account.vault.fetch(vaultPda);
+      const remainingBalance = vault.depositAmount.sub(vault.totalSettled);
+      const settleAmount = remainingBalance.add(new BN(1));
+      const nonce = new BN(4);
+
+      const message = Buffer.concat([
+        Buffer.from("X402_FLOW_SETTLE"),
+        vaultPda.toBuffer(),
+        providerPda.toBuffer(),
+        settleAmount.toArrayLike(Buffer, "le", 8),
+        nonce.toArrayLike(Buffer, "le", 8),
+      ]);
+
+      const signature = nacl.sign.detached(message, agent.secretKey);
+      const publicKey = agent.publicKey.toBytes();
+
+      const ed25519Ix = Ed25519Program.createInstructionWithPublicKey({
+        publicKey,
+        message,
+        signature,
+      });
+
+      const settleBatchIx = await program.methods
+        .settleBatch(settleAmount, nonce)
+        .accounts({
+          facilitator: facilitator.publicKey,
+          agent: agent.publicKey,
+          vault: vaultPda,
+          vaultTokenAccount: vaultTokenAccountPda,
+          globalConfig: globalConfigPda,
+          provider: providerPda,
+          destination: providerTokenAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        } as any)
+        .instruction();
+
+      const tx = new Transaction().add(ed25519Ix).add(settleBatchIx);
+      const promise = provider.sendAndConfirm(tx, [facilitator]);
+
+      await assertRejects(
+        promise,
+        "InsufficientFunds",
+        "Should reject overdraft"
+      );
+      console.log("✅ Overdraft prevented");
+    });
+
+    it("Fails: Settlement below threshold", async () => {
+      const settleAmount = settleThreshold.sub(new BN(1));
+      const nonce = new BN(4);
+
+      const message = Buffer.concat([
+        Buffer.from("X402_FLOW_SETTLE"),
+        vaultPda.toBuffer(),
+        providerPda.toBuffer(),
+        settleAmount.toArrayLike(Buffer, "le", 8),
+        nonce.toArrayLike(Buffer, "le", 8),
+      ]);
+
+      const signature = nacl.sign.detached(message, agent.secretKey);
+      const publicKey = agent.publicKey.toBytes();
+
+      const ed25519Ix = Ed25519Program.createInstructionWithPublicKey({
+        publicKey,
+        message,
+        signature,
+      });
+
+      const settleBatchIx = await program.methods
+        .settleBatch(settleAmount, nonce)
+        .accounts({
+          facilitator: facilitator.publicKey,
+          agent: agent.publicKey,
+          vault: vaultPda,
+          vaultTokenAccount: vaultTokenAccountPda,
+          globalConfig: globalConfigPda,
+          provider: providerPda,
+          destination: providerTokenAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        } as any)
+        .instruction();
+
+      const tx = new Transaction().add(ed25519Ix).add(settleBatchIx);
+      const promise = provider.sendAndConfirm(tx, [facilitator]);
+
+      await assertRejects(
+        promise,
+        "ZeroAmount",
+        "Should reject amount below threshold"
+      );
+      console.log("✅ Below threshold rejected");
+    });
+  });
+
+  describe("Withdrawal Tests", () => {
+    it("Fails: Wrong user tries to withdraw", async () => {
+      const promise = program.methods
+        .withdraw()
+        .accounts({
+          agent: randomUser.publicKey,
+          vault: vaultPda,
+          vaultTokenAccount: vaultTokenAccountPda,
+          agentTokenAccount: randomUserTokenAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        } as any)
+        .signers([randomUser])
+        .rpc();
+
+      await assertRejects(
+        promise,
+        "ConstraintSeeds",
+        "Should reject unauthorized withdrawal"
+      );
+      console.log("✅ Unauthorized withdrawal prevented");
+    });
+
+    it("Withdraws remaining funds successfully", async () => {
+      const vaultBefore = await program.account.vault.fetch(vaultPda);
+      const remainingAmount = vaultBefore.depositAmount.sub(
+        vaultBefore.totalSettled
+      );
+
+      const tx = await program.methods
+        .withdraw()
+        .accounts({
+          agent: agent.publicKey,
+          vault: vaultPda,
+          vaultTokenAccount: vaultTokenAccountPda,
+          agentTokenAccount: agentTokenAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        } as any)
+        .signers([agent])
+        .rpc();
+
+      console.log("✅ Withdrawal executed:", tx);
+
+      // Vault should be closed
+      try {
+        await program.account.vault.fetch(vaultPda);
+        assert.fail("Vault should be closed");
+      } catch (err) {
+        assert.ok(err.toString().includes("Account does not exist"));
+      }
+
+      // Check final balance
+      const agentBalance = await getAccount(
+        provider.connection,
+        agentTokenAccount
+      );
+      const expectedBalance = new BN(10_000_000)
+        .sub(depositAmount)
+        .add(remainingAmount);
+      assert.equal(agentBalance.amount.toString(), expectedBalance.toString());
+      console.log("✅ Final balance verified");
+    });
+  });
+
+  describe("Admin Tests", () => {
+    it("Fails: Non-admin tries emergency pause", async () => {
+      const promise = program.methods
+        .emergencyPause(true)
+        .accounts({
+          admin: agent.publicKey,
+          globalConfig: globalConfigPda,
+        } as any)
+        .signers([agent])
+        .rpc();
+
+      await assertRejects(
+        promise,
+        "ConstraintHasOne",
+        "Should reject non-admin pause"
+      );
+      console.log("✅ Non-admin pause rejected");
+    });
+
+    it("Admin triggers emergency pause successfully", async () => {
+      const tx = await program.methods
+        .emergencyPause(true)
+        .accounts({
+          admin: admin.publicKey,
+          globalConfig: globalConfigPda,
+        } as any)
+        .signers([admin])
+        .rpc();
+
+      console.log("✅ Emergency pause triggered:", tx);
+    });
   });
 });
