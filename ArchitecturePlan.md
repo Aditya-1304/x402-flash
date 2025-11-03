@@ -717,10 +717,11 @@ Off-Chain Changes (Facilitator/SDK):
 The FlashSDK's createVault method will take an optional mint address.
 Your demo will instantiate two vaults: one with USDC, one with CASH, to show it works with both.
 Demo Narrative: "Our system is payment-agnostic. Here, we're creating a vault funded with Phantom CASH, showing how any SPL token can be used for high-speed micropayments."
+
 2. Switchboard Oracle Integration (Elegant Enhancement)
 Strategy: Replace the "query RPC for priority fee" step with a more robust Switchboard data feed that tracks network fees or congestion. This is a massive upgrade to your dynamic fee logic.
 On-Chain Changes (Anchor):
-The settle_batch instruction will now accept a Switchboard account to prove the fee data is recent and trusted. This prevents the facilitator from using stale data.
+none, we will implement it fully offchain
 
 - **Off-Chain Changes (Facilitator):**
     

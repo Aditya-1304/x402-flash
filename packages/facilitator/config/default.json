@@ -1,10 +1,13 @@
 {
   "port": 8080,
-  "rpcUrl": "https://api.devnet.solana.com",
+  "rpcUrl": "https://devnet.helius-rpc.com/?api-key=d19e136d-5a39-4916-9673-a5f10e88f6f9",
   "facilitatorKeypairPath": "~/.config/solana/id.json",
   "settlement": {
     "threshold": 200000,
     "periodMs": 30000
   },
-  "logLevel": "info"
+  "logLevel": "info",
+  "switchboard": {
+    "feedPubkey": "GvDMxPzN1sCj7L26YDK2HnMRXEQmQ2aemov8YBtPS7vR"
+  }
 }
