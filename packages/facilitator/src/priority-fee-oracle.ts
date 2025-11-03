@@ -13,6 +13,7 @@ import config from "config";
 */
 const DEFAULT_PRIORITY_FEE = 5000; // Fallback: 0.000005 SOL
 const UPDATE_INTERVAL_MS = 10000; // Update every 10 seconds
+const LAMPORTS_PER_SOL = 1_000_000_000;
 
 export class PriorityFeeOracle {
   private lastPriorityFee = DEFAULT_PRIORITY_FEE;
@@ -87,8 +88,10 @@ export class PriorityFeeOracle {
    * Runs the full hybrid logic to determine the final fee.
    */
   public async fetchPriorityFee(): Promise<void> {
+    const maxUsdFee = config.get<number>("fees.maxUsdPriorityFee");
+
     // 1. Get Baseline Fee from RPC
-    const baselineFee = await this.fetchRpcPriorityFee();
+    const baselineRpcFee = await this.fetchRpcPriorityFee();
 
     // 2. Get SOL Price from Switchboard
     const solPrice = await this.fetchSolPrice();
@@ -96,31 +99,41 @@ export class PriorityFeeOracle {
     if (solPrice === null) {
       // If Switchboard fails, just use the reliable RPC data
       logger.warn("Switchboard failed, falling back to RPC-only fee.");
-      this.lastPriorityFee = baselineFee;
+      this.lastPriorityFee = baselineRpcFee;
       return;
     }
 
     // 3. --- Production-Grade Hybrid Heuristic ---
-    // Make the agent "cost-aware".
-    let costModifier = 1.0; // Default: bid the market rate
+    const baselineFeeInSol = baselineRpcFee / LAMPORTS_PER_SOL;
+    const baselineFeeInUsd = baselineFeeInSol * solPrice;
 
-    if (solPrice < 150) {
-      // SOL is "cheap", we can be more aggressive
-      costModifier = 1.25;
-    } else if (solPrice > 200) {
-      // SOL is "expensive", be more conservative (don't overbid)
-      costModifier = 1.0;
+    let finalFee: number;
+
+    if (baselineFeeInUsd > maxUsdFee) {
+      // The market rate is too expensive. We must cap our bid.
+      const maxFeeInSol = maxUsdFee / solPrice;
+      finalFee = Math.floor(maxFeeInSol * LAMPORTS_PER_SOL);
+      logger.warn(
+        {
+          solPrice,
+          baselineRpcFee,
+          baselineFeeInUsd,
+          maxUsdFee,
+          cappedFee: finalFee,
+        },
+        "Priority fee market rate exceeds cost cap. Capping fee."
+      );
+    } else {
+      finalFee = baselineRpcFee;
     }
-    // (This is a simple model, but it's *defensible* and not "toy")
 
-    this.lastPriorityFee = Math.floor(baselineFee * costModifier);
-    // --- END Heuristic ---
+    this.lastPriorityFee = finalFee;
 
     logger.info(
       {
         solPrice: solPrice,
-        baselineRpcFee: baselineFee,
-        costModifier: costModifier,
+        baselineRpcFee: baselineRpcFee,
+        baselineFeeInUsd: baselineFeeInUsd.toFixed(6),
         finalFee: this.lastPriorityFee,
       },
       "Updated priority fee from Hybrid Oracle (RPC + Switchboard)"

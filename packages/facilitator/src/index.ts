@@ -1,3 +1,6 @@
+import * as dotenv from "dotenv";
+dotenv.config();
+
 import config from "config";
 import { logger } from "./utils/logger";
 import { PriorityFeeOracle } from "./priority-fee-oracle";

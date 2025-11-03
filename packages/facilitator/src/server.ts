@@ -1,17 +1,57 @@
 import { createServer, IncomingMessage } from "http";
-import WebSocketServer from "ws";
 import WebSocket from "ws";
 import { logger } from "./utils/logger";
 import { SessionManager } from "./session-manager";
 import { PublicKey } from "@solana/web3.js";
+import * as jwt from "jsonwebtoken";
+import { BN } from "@coral-xyz/anchor";
+
+const VISA_TAP_JWT_SECRET = process.env.VISA_TAP_JWT_SECRET;
+if (!VISA_TAP_JWT_SECRET) {
+  logger.error("FATAL: VISA_TAP_JWT_SECRET is not set in the environment.");
+  process.exit(1);
+}
 
 export function startServer(port: number, sessionManager: SessionManager) {
-  const server = createServer();
+  // The HTTP server will handle BOTH WebSockets and internal API calls
+  const server = createServer(async (req, res) => {
+    // --- THIS IS THE NEW PRODUCTION-GRADE USAGE REPORTING ENDPOINT ---
+    if (req.url === "/report-usage" && req.method === "POST") {
+      try {
+        let body = "";
+        for await (const chunk of req) {
+          body += chunk.toString();
+        }
+
+        const { agentId, usage } = JSON.parse(body);
+        if (!agentId || !usage) {
+          throw new Error("Missing agentId or usage in usage report");
+        }
+
+        // Report usage to the session manager
+        sessionManager.reportUsage(agentId, new BN(usage));
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ status: "ok" }));
+      } catch (error: any) {
+        logger.error(error, "Failed to process usage report");
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ status: "error", message: error.message }));
+      }
+    } else {
+      // Any other HTTP request is not found (WebSockets are handled below)
+      res.writeHead(404);
+      res.end();
+    }
+    // --- END OF NEW HTTP LOGIC ---
+  });
+
   const wss = new WebSocket.Server({ server });
 
+  // This 'connection' logic is for the WebSocket protocol
   wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
     if (!req.url) {
-      logger.warn("Connection attempt without URL. Closing.");
+      logger.warn("WebSocket connection attempt without URL. Closing.");
       ws.close();
       return;
     }
@@ -19,24 +59,23 @@ export function startServer(port: number, sessionManager: SessionManager) {
     const agentPubkey = url.searchParams.get("agent");
     const providerPubkey = url.searchParams.get("provider");
 
+    // [BOUNTY: Visa TAP]
     const visaTapCredential = url.searchParams.get("visa_tap_credential");
     if (!visaTapCredential) {
-      // For the hackathon, we'll just log if it's missing
-      logger.warn(
-        { agent: agentPubkey },
-        "Agent connected without Visa TAP credential."
-      );
-      // In a strict production build, you might close here:
-      // ws.close();
-      // return;
-    } else {
-      logger.info(
-        { agent: agentPubkey },
-        "Agent connected with Visa TAP credential. Verifying..."
-      );
-      // ... (verification logic) ...
-      // For demo:
-      logger.info("[BOUNTY: Visa TAP] Agent identity verified.");
+      logger.warn({ agent: agentPubkey }, "Agent connected without Visa TAP credential. Closing.");
+      ws.send(JSON.stringify({ type: "error", message: "Visa TAP credential required." }));
+      ws.close();
+      return;
+    }
+
+    try {
+      const decoded = jwt.verify(visaTapCredential, VISA_TAP_JWT_SECRET!);
+      logger.info({ agent: agentPubkey, claims: decoded }, "[BOUNTY: Visa TAP] Agent identity verified via JWT credential.");
+    } catch (err: any) {
+      logger.error({ agent: agentPubkey, error: err.message }, "Invalid Visa TAP credential. Closing.");
+      ws.send(JSON.stringify({ type: "error", message: "Invalid Visa TAP credential." }));
+      ws.close();
+      return;
     }
 
     if (!agentPubkey || !providerPubkey) {
@@ -59,7 +98,7 @@ export function startServer(port: number, sessionManager: SessionManager) {
     ws.on("message", (message: string) => {
       try {
         const data = JSON.parse(message);
-        if (data.type === "settlement_signature") {
+        if (data.type === "settlement_signature" && agentPubkey) {
           sessionManager.handleSignature(
             agentPubkey,
             data.amount,
@@ -71,9 +110,15 @@ export function startServer(port: number, sessionManager: SessionManager) {
         logger.error(error, "Failed to handle message");
       }
     });
+
+    ws.on("close", () => {
+      if (agentPubkey) {
+        sessionManager.handleDisconnect(agentPubkey);
+      }
+    });
   });
 
   server.listen(port, () => {
-    logger.info(`Facilitator WebSocket server started on port ${port}`);
+    logger.info(`x402-Flash MCP Server (WebSocket + HTTP) started on port ${port}`);
   });
 }

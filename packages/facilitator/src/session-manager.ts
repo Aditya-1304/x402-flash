@@ -14,7 +14,6 @@ interface Session {
   spentOffchain: BN;
   isSettling: boolean;
   settlementTimer: NodeJS.Timeout;
-  streamTimer: NodeJS.Timeout;
 }
 
 export class SessionManager {
@@ -55,37 +54,16 @@ export class SessionManager {
     );
 
     try {
-      // Check if vault exists
       const vaultAccount = await this.program.account.vault.fetch(vaultPda);
-      logger.info(
-        { agentId, balance: vaultAccount.depositAmount.toString() },
-        "Vault validated"
-      );
+      logger.info({ agentId, balance: vaultAccount.depositAmount.toString() }, "Vault validated");
 
-      // Check if provider exists
       const [providerPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("provider"), providerAuthority.toBuffer()],
         this.program.programId
       );
-      // This will throw an error if the provider is not registered
       await this.program.account.provider.fetch(providerPda);
-      logger.info(
-        { provider: providerPubkey },
-        "Provider validated"
-      );
+      logger.info({ provider: providerPubkey }, "Provider validated");
 
-
-      // Simulate streaming by incrementing spend
-      const streamInterval = setInterval(() => {
-        const session = this.sessions.get(agentId);
-        if (session && !session.isSettling) {
-          // This is a placeholder for real usage tracking
-          const tickAmount = new BN(100); // 0.0001 USDC per tick
-          session.spentOffchain = session.spentOffchain.add(tickAmount);
-        }
-      }, 100); // 10 ticks per second
-
-      // Start settlement check timer
       const settlementTimer = setInterval(
         () => this.triggerSettlementCheck(agentId),
         this.settlementPeriodMs
@@ -99,23 +77,30 @@ export class SessionManager {
         spentOffchain: new BN(0),
         isSettling: false,
         settlementTimer,
-        streamTimer: streamInterval,
       });
 
       logger.info({ agentId, provider: providerPubkey }, "Agent session started");
-
     } catch (error) {
-      logger.error(
-        error,
-        "Vault or Provider validation failed. Disconnecting agent."
-      );
-      ws.send(
-        JSON.stringify({
-          type: "error",
-          message: "Vault or Provider not found or invalid.",
-        })
-      );
+      logger.error(error, "Vault or Provider validation failed. Disconnecting agent.");
+      ws.send(JSON.stringify({ type: "error", message: "Vault or Provider not found or invalid." }));
       ws.close();
+    }
+  }
+
+  public reportUsage(agentId: string, usageAmount: BN) {
+    const session = this.sessions.get(agentId);
+    if (session && !session.isSettling) {
+      session.spentOffchain = session.spentOffchain.add(usageAmount);
+      logger.info(
+        {
+          agentId,
+          usage: usageAmount.toString(),
+          newTotal: session.spentOffchain.toString(),
+        },
+        "Usage reported by Provider"
+      );
+    } else {
+      logger.warn({ agentId }, "Received usage report for unknown or settling session");
     }
   }
 
@@ -123,7 +108,6 @@ export class SessionManager {
     logger.info({ agentId }, "Agent disconnected");
     const session = this.sessions.get(agentId);
     if (session) {
-      clearInterval(session.streamTimer);
       clearInterval(session.settlementTimer);
       this.sessions.delete(agentId);
     }
@@ -135,23 +119,17 @@ export class SessionManager {
       return;
     }
 
-    // Check if threshold is met OR if it's just time to settle
     if (session.spentOffchain.gte(this.settlementThreshold)) {
-      logger.info(
-        { agentId, amount: session.spentOffchain.toString() },
-        "Settlement threshold reached. Requesting signature..."
-      );
+      logger.info({ agentId, amount: session.spentOffchain.toString() }, "Settlement threshold reached. Requesting signature...");
       session.isSettling = true;
 
       try {
-        const vaultAccount = await this.program.account.vault.fetch(
-          session.vaultPda
-        );
+        const vaultAccount = await this.program.account.vault.fetch(session.vaultPda);
         const nonce = vaultAccount.nonce.add(new BN(1));
 
         const message = {
           type: "request_signature",
-          amount: session.spentOffchain.toString(), // Settle the full outstanding amount
+          amount: session.spentOffchain.toString(),
           nonce: nonce.toString(),
         };
         session.ws.send(JSON.stringify(message));
@@ -178,14 +156,12 @@ export class SessionManager {
     const nonce = new BN(nonceStr);
     const sigBuffer = Buffer.from(signature, "base64");
 
-    // Production-ready check: ensure amount matches what server expects
     if (!amount.eq(session.spentOffchain)) {
       logger.warn({
         agentId,
         clientAmount: amount.toString(),
         serverAmount: session.spentOffchain.toString()
       }, "Client-sent amount does not match server-tracked amount. Rejecting settlement.");
-
       session.ws.send(JSON.stringify({ type: "settlement_failed", message: "Amount mismatch" }));
       session.isSettling = false;
       return;
@@ -201,8 +177,6 @@ export class SessionManager {
     );
 
     if (txId) {
-      // Production-ready logic: Subtract the settled amount, don't just reset to 0.
-      // This preserves any small ticks that happened during the settlement.
       session.spentOffchain = session.spentOffchain.sub(amount);
       session.ws.send(JSON.stringify({ type: "settlement_confirmed", txId }));
     } else {
