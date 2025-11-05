@@ -1,10 +1,11 @@
-import { PublicKey } from "@solana/web3.js";
 import WebSocket from "ws";
+import { PublicKey } from "@solana/web3.js";
+import { BN, Program } from "@coral-xyz/anchor";
+import config from "config";
 import { logger } from "./utils/logger";
 import { SettlementEngine } from "./settlement-engine";
-import { Program, BN } from "@coral-xyz/anchor";
 import { FlowVault } from "./idl/flow_vault";
-import config from "config";
+import { SessionStore } from "./utils/session-state"; // Add import
 
 interface Session {
   ws: WebSocket;
@@ -20,6 +21,7 @@ export class SessionManager {
   private sessions = new Map<string, Session>();
   private settlementThreshold: BN;
   private settlementPeriodMs: number;
+  private sessionStore: SessionStore; // Add this
 
   constructor(
     private settlementEngine: SettlementEngine,
@@ -29,12 +31,14 @@ export class SessionManager {
       config.get<number>("settlement.threshold")
     );
     this.settlementPeriodMs = config.get<number>("settlement.periodMs");
+    this.sessionStore = new SessionStore(); // Initialize Redis store
+
     logger.info(
       {
         threshold: this.settlementThreshold.toString(),
         periodMs: this.settlementPeriodMs,
       },
-      "SessionManager initialized"
+      "SessionManager initialized with Redis persistence"
     );
   }
 
@@ -54,9 +58,21 @@ export class SessionManager {
     );
 
     try {
+      // Try to restore session from Redis first
+      const persistedSession = await this.sessionStore.loadSession(agentId);
+      let spentOffchain = new BN(0);
+
+      if (persistedSession) {
+        logger.info(
+          { agentId, spentOffchain: persistedSession.spentOffchain },
+          "Restored session from Redis"
+        );
+        spentOffchain = new BN(persistedSession.spentOffchain);
+      }
+
       const vaultAccount = await this.program.account.vault.fetch(vaultPda);
 
-      // FIX: Check if vault has sufficient balance
+      // Check if vault has sufficient balance
       if (vaultAccount.depositAmount.sub(vaultAccount.totalSettled).lte(new BN(0))) {
         logger.warn({ agentId }, "Vault has insufficient balance. Disconnecting agent.");
         ws.send(JSON.stringify({
@@ -86,17 +102,27 @@ export class SessionManager {
         this.settlementPeriodMs
       );
 
-      this.sessions.set(agentId, {
+      const session: Session = {
         ws,
         agent,
         providerAuthority,
         vaultPda,
-        spentOffchain: new BN(0),
+        spentOffchain,
         isSettling: false,
         settlementTimer,
+      };
+
+      this.sessions.set(agentId, session);
+
+      // Persist to Redis
+      await this.sessionStore.saveSession(agentId, {
+        agent,
+        providerAuthority,
+        vaultPda,
+        spentOffchain,
       });
 
-      logger.info({ agentId, provider: providerPubkey }, "Agent session started");
+      logger.info({ agentId, provider: providerPubkey }, "Agent session started and persisted");
     } catch (error) {
       logger.error(error, "Vault or Provider validation failed. Disconnecting agent.");
       ws.send(JSON.stringify({ type: "error", message: "Vault or Provider not found or invalid." }));
@@ -104,57 +130,87 @@ export class SessionManager {
     }
   }
 
-  public reportUsage(agentId: string, usageAmount: BN) {
+  public async reportUsage(agentId: string, usageAmount: BN) {
     const session = this.sessions.get(agentId);
-    if (session && !session.isSettling) {
-      session.spentOffchain = session.spentOffchain.add(usageAmount);
-      logger.info(
-        {
-          agentId,
-          usage: usageAmount.toString(),
-          newTotal: session.spentOffchain.toString(),
-        },
-        "Usage reported by Provider"
-      );
-    } else {
-      logger.warn({ agentId }, "Received usage report for unknown or settling session");
+    if (!session) {
+      logger.warn({ agentId }, "reportUsage called for unknown session");
+      return;
+    }
+
+    session.spentOffchain = session.spentOffchain.add(usageAmount);
+    logger.debug(
+      {
+        agentId,
+        usage: usageAmount.toString(),
+        totalSpent: session.spentOffchain.toString(),
+      },
+      "Usage reported"
+    );
+
+    // Persist updated state to Redis
+    await this.sessionStore.saveSession(agentId, {
+      agent: session.agent,
+      providerAuthority: session.providerAuthority,
+      vaultPda: session.vaultPda,
+      spentOffchain: session.spentOffchain,
+    });
+
+    if (session.spentOffchain.gte(this.settlementThreshold)) {
+      logger.info({ agentId }, "Threshold exceeded, triggering settlement");
+      await this.triggerSettlementCheck(agentId);
     }
   }
 
-  handleDisconnect(agentId: string) {
-    logger.info({ agentId }, "Agent disconnected");
+  async handleDisconnect(agentId: string) {
     const session = this.sessions.get(agentId);
-    if (session) {
-      clearInterval(session.settlementTimer);
-      this.sessions.delete(agentId);
-    }
+    if (!session) return;
+
+    clearInterval(session.settlementTimer);
+    this.sessions.delete(agentId);
+
+    // Keep session in Redis for potential reconnection
+    // Don't delete it - it will expire in 1 hour
+    logger.info({ agentId }, "Agent disconnected, session kept in Redis for reconnection");
   }
 
   private async triggerSettlementCheck(agentId: string) {
     const session = this.sessions.get(agentId);
-    if (!session || session.isSettling || session.spentOffchain.isZero()) {
+    if (!session) {
+      logger.warn({ agentId }, "triggerSettlementCheck: session not found");
       return;
     }
 
-    if (session.spentOffchain.gte(this.settlementThreshold)) {
-      logger.info({ agentId, amount: session.spentOffchain.toString() }, "Settlement threshold reached. Requesting signature...");
-      session.isSettling = true;
-
-      try {
-        const vaultAccount = await this.program.account.vault.fetch(session.vaultPda);
-        const nonce = vaultAccount.nonce.add(new BN(1));
-
-        const message = {
-          type: "request_signature",
-          amount: session.spentOffchain.toString(),
-          nonce: nonce.toString(),
-        };
-        session.ws.send(JSON.stringify(message));
-      } catch (error) {
-        logger.error(error, "Failed to fetch vault for settlement check");
-        session.isSettling = false;
-      }
+    if (session.isSettling) {
+      logger.debug({ agentId }, "Settlement already in progress, skipping");
+      return;
     }
+
+    if (session.spentOffchain.lt(this.settlementThreshold)) {
+      logger.debug(
+        { agentId, spent: session.spentOffchain.toString() },
+        "Spent amount below threshold, skipping settlement"
+      );
+      return;
+    }
+
+    const vaultAccount = await this.program.account.vault.fetch(
+      session.vaultPda
+    );
+    const amount = session.spentOffchain;
+    const nonce = vaultAccount.nonce.add(new BN(1));
+
+    logger.info(
+      { agentId, amount: amount.toString(), nonce: nonce.toString() },
+      "Requesting settlement signature from agent"
+    );
+
+    session.ws.send(
+      JSON.stringify({
+        type: "request_signature",
+        amount: amount.toString(),
+        nonce: nonce.toString(),
+      })
+    );
   }
 
   async handleSignature(
@@ -164,43 +220,96 @@ export class SessionManager {
     signature: string
   ) {
     const session = this.sessions.get(agentId);
-    if (!session || !session.isSettling) {
-      logger.warn({ agentId }, "Received unexpected signature");
+    if (!session) {
+      logger.warn({ agentId }, "handleSignature: session not found");
       return;
     }
 
-    const amount = new BN(amountStr);
-    const nonce = new BN(nonceStr);
-    const sigBuffer = Buffer.from(signature, "base64");
+    if (session.isSettling) {
+      logger.warn({ agentId }, "Settlement already in progress");
+      return;
+    }
 
-    if (!amount.eq(session.spentOffchain)) {
-      logger.warn({
-        agentId,
-        clientAmount: amount.toString(),
-        serverAmount: session.spentOffchain.toString()
-      }, "Client-sent amount does not match server-tracked amount. Rejecting settlement.");
-      session.ws.send(JSON.stringify({ type: "settlement_failed", message: "Amount mismatch" }));
+    session.isSettling = true;
+
+    try {
+      const amount = new BN(amountStr);
+      const nonce = new BN(nonceStr);
+      const signatureBuffer = Buffer.from(signature, "base64");
+
+      logger.info(
+        { agentId, amount: amount.toString(), nonce: nonce.toString() },
+        "Received settlement signature, submitting to blockchain"
+      );
+
+      const txId = await this.settlementEngine.settle(
+        session.agent,
+        session.providerAuthority,
+        session.vaultPda,
+        amount,
+        nonce,
+        signatureBuffer
+      );
+
+      if (txId) {
+        session.spentOffchain = session.spentOffchain.sub(amount);
+
+        // Update Redis
+        await this.sessionStore.saveSession(agentId, {
+          agent: session.agent,
+          providerAuthority: session.providerAuthority,
+          vaultPda: session.vaultPda,
+          spentOffchain: session.spentOffchain,
+        });
+
+        session.ws.send(
+          JSON.stringify({
+            type: "settlement_confirmed",
+            txId,
+            amountSettled: amount.toString(),
+          })
+        );
+        logger.info({ agentId, txId }, "Settlement confirmed");
+      } else {
+        session.ws.send(
+          JSON.stringify({
+            type: "settlement_failed",
+            message: "Circuit breaker is OPEN. Settlement blocked.",
+          })
+        );
+        logger.warn({ agentId }, "Settlement blocked by circuit breaker");
+      }
+    } catch (error: any) {
+      logger.error(error, "Error processing settlement signature");
+      session.ws.send(
+        JSON.stringify({
+          type: "settlement_failed",
+          message: error.message,
+        })
+      );
+    } finally {
       session.isSettling = false;
-      return;
     }
+  }
 
-    const txId = await this.settlementEngine.settle(
-      session.agent,
-      session.providerAuthority,
-      session.vaultPda,
-      amount,
-      nonce,
-      sigBuffer
+  // Add cleanup method for graceful shutdown
+  public async cleanup(): Promise<void> {
+    logger.info("Cleaning up session manager...");
+
+    // Save all active sessions to Redis before shutdown
+    const savePromises = Array.from(this.sessions.entries()).map(
+      async ([agentId, session]) => {
+        await this.sessionStore.saveSession(agentId, {
+          agent: session.agent,
+          providerAuthority: session.providerAuthority,
+          vaultPda: session.vaultPda,
+          spentOffchain: session.spentOffchain,
+        });
+      }
     );
 
-    if (txId) {
-      session.spentOffchain = session.spentOffchain.sub(amount);
-      session.ws.send(JSON.stringify({ type: "settlement_confirmed", txId }));
-    } else {
-      logger.error({ agentId }, "Settlement Engine failed to settle.");
-      session.ws.send(JSON.stringify({ type: "settlement_failed" }));
-    }
-
-    session.isSettling = false;
+    await Promise.all(savePromises);
+    await this.sessionStore.close();
+    logger.info("Session manager cleanup complete");
   }
 }

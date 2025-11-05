@@ -12,5 +12,8 @@
   },
   "fees": {
     "maxUsdPriorityFee": 0.001
+  },
+  "redis": {
+    "url": "redis://localhost:6379"
   }
 }

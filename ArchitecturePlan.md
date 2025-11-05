@@ -1,3 +1,6 @@
+
+
+
 ## x402-Flash on Solana — Detailed (10-Day, Doable) Architecture (Corrected Settlement Flow)
 
 Nice — here’s the full reduced, hackathon-friendly version of the architecture you asked for: same core idea (instant agent payments + batched on-chain settlement) but practical to build in 10 days. I kept it technical and precise so you can implement it immediately.
@@ -703,6 +706,142 @@ Narration: mention the dynamic fee line — judges like the small production det
 -  Agent signs off-chain message; facilitator submits `settle_batch` with ed25519 pre-ix and **ComputeBudget instruction**.
     
 -  Demo script/logs ready, showing dynamic fee and confirmation times.
+
+
+
+x402-flash/
+├── README.md
+├── package.json                    # Root workspace config
+├── .gitignore
+├── .env.example
+│
+├── anchor/                         # Solana program
+│   ├── Anchor.toml
+│   ├── Cargo.toml
+│   ├── programs/
+│   │   └── flow-vault/
+│   │       ├── Cargo.toml
+│   │       ├── Xargo.toml
+│   │       └── src/
+│   │           ├── lib.rs          # Program entry
+│   │           ├── state/
+│   │           │   ├── mod.rs
+│   │           │   ├── vault.rs
+│   │           │   ├── global_config.rs
+│   │           │   └── provider.rs
+│   │           ├── instructions/
+│   │           │   ├── mod.rs
+│   │           │   ├── create_vault.rs
+│   │           │   ├── settle_batch.rs
+│   │           │   ├── withdraw.rs
+│   │           │   └── emergency_pause.rs
+│   │           ├── errors.rs
+│   │           └── events.rs
+│   │
+│   └── tests/
+│       ├── flow-vault.spec.ts      # Anchor tests
+│       └── utils.ts
+│
+├── packages/
+│   ├── sdk/                        # Flash SDK (TypeScript)
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   ├── src/
+│   │   │   ├── index.ts
+│   │   │   ├── FlashClient.ts      # Main SDK class
+│   │   │   ├── types.ts
+│   │   │   ├── utils/
+│   │   │   │   ├── signature.ts
+│   │   │   │   ├── priority-fee.ts
+│   │   │   │   └── vault-pda.ts
+│   │   │   └── constants.ts
+│   │   ├── tests/
+│   │   │   └── FlashClient.test.ts
+│   │   └── README.md
+│   │
+│   ├── facilitator/                # Off-chain server
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   ├── src/
+│   │   │   ├── index.ts            # Server entry
+│   │   │   ├── server.ts           # WebSocket/QUIC server
+│   │   │   ├── session-manager.ts
+│   │   │   ├── settlement-engine.ts
+│   │   │   ├── priority-fee-oracle.ts
+│   │   │   ├── circuit-breaker.ts
+│   │   │   ├── mcp-server.ts       # MCP protocol interface
+│   │   │   ├── types.ts
+│   │   │   └── utils/
+│   │   │       ├── signature-verify.ts
+│   │   │       ├── rpc-client.ts
+│   │   │       └── logger.ts
+│   │   ├── config/
+│   │   │   └── default.json
+│   │   └── README.md
+│   │
+│   ├── provider/                   # Streaming API provider
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   ├── src/
+│   │   │   ├── index.ts
+│   │   │   ├── streaming-server.ts
+│   │   │   ├── data-generator.ts   # Mock streaming data
+│   │   │   ├── voucher-validator.ts
+│   │   │   └── types.ts
+│   │   └── README.md
+│   │
+│   ├── dashboard/                  # Web UI (Optional but impressive)
+│   │   ├── package.json
+│   │   ├── next.config.js
+│   │   ├── tsconfig.json
+│   │   ├── src/
+│   │   │   ├── app/
+│   │   │   │   ├── page.tsx        # Main dashboard
+│   │   │   │   └── layout.tsx
+│   │   │   ├── components/
+│   │   │   │   ├── VaultCard.tsx
+│   │   │   │   ├── StreamMetrics.tsx
+│   │   │   │   ├── SettlementLog.tsx
+│   │   │   │   └── FeeChart.tsx
+│   │   │   └── hooks/
+│   │   │       ├── useVault.ts
+│   │   │       └── useWebSocket.ts
+│   │   └── public/
+│   │
+│   └── cli/                        # Demo CLI tool
+│       ├── package.json
+│       ├── tsconfig.json
+│       └── src/
+│           ├── index.ts
+│           ├── commands/
+│           │   ├── create-vault.ts
+│           │   ├── stream.ts
+│           │   ├── withdraw.ts
+│           │   └── stats.ts
+│           └── utils/
+│               └── display.ts
+│
+├── scripts/                        # Deployment & setup
+│   ├── deploy-program.sh
+│   ├── setup-devnet.ts
+│   ├── fund-wallets.ts
+│   ├── generate-keypairs.ts
+│   └── demo-flow.ts
+│
+├── examples/                       # Demo scenarios
+│   ├── ai-agent-example.ts         # AI agent paying for API
+│   ├── streaming-video.ts          # Media streaming demo
+│   └── high-frequency-trading.ts   # HFT data feed demo
+│
+├── docs/                           # Documentation
+│   ├── ARCHITECTURE.md
+│   ├── API.md
+│   ├── DEPLOYMENT.md
+│   └── DEMO_SCRIPT.md
+│
+└── .github/
+    └── workflows/
+        └── tests.yml
 
 
 
