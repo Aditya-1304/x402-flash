@@ -32,6 +32,18 @@ export interface AutonomousSigner {
   signMessage(message: Uint8Array): Promise<Uint8Array>;
 }
 
+export interface CoinbaseAgentKitWallet extends AutonomousSigner {
+  // Coinbase-specific methods
+  exportWallet?: () => Promise<{
+    seed: string;
+    walletId: string;
+  }>;
+  getDefaultAddress?: () => Promise<string>;
+}
+
+export type SupportedWallet = AutonomousSigner | CoinbaseAgentKitWallet;
+
+
 export interface FlashClientOptions {
   facilitatorUrl: string;
 }

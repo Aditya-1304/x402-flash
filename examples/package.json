@@ -1,0 +1,30 @@
+{
+  "name": "@x402/examples",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production examples for x402-Flash",
+  "scripts": {
+    "autonomous": "ts-node autonomous-agent-demo.ts",
+    "phantom": "ts-node phantom-cash-streaming.ts",
+    "coinbase": "ts-node coinbase-cdp-integration.ts",
+    "provider": "ts-node provider-registration.ts",
+    "full-demo": "ts-node full-stack-demo.ts"
+  },
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@coinbase/coinbase-sdk": "^0.25.0",
+    "@coinbase/wallet-sdk": "^4.3.7",
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.98.4",
+    "tweetnacl": "^1.0.3",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "ts-node": "^10.9.2"
+  }
+}

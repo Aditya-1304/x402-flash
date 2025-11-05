@@ -7,8 +7,12 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces",
-    "test": "npm run test --workspaces",
-    "deploy": "bash scripts/deploy-program.sh"
+    "build:sdk": "npm run build --workspace=packages/sdk",
+    "build:facilitator": "npm run build --workspace=packages/facilitator",
+    "dev:facilitator": "npm run dev --workspace=packages/facilitator",
+    "example:coinbase": "npm run coinbase --workspace=examples",
+    "example:phantom": "npm run phantom --workspace=examples",
+    "demo:full": "./scripts/demo-production.sh"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

@@ -1,4 +1,158 @@
+Solana X402 Hackathon
+Join developers hacking on the frontier of internet payments and compete for up to $50,000 in prizes
 
+Welcome Builders
+The opportunity to build on the agent economy is here
+This remote hackathon is geared to building new innovative tools, apps, infra, and agents on x402. Join the community to find teams and build with other developers on Solana worldwide
+
+Event Timeline
+Phase	Date
+Start	10/28/25
+Building Period	10/28/25 - 11/11/25
+Submission Deadline	11/11/25
+Winners Announced	11/17/25
+Get Started
+x402 Intro
+Learn about the x402 protocol and how it enables instant, blockchain-based payments for APIs and agents
+
+Build on Solana
+Get started with Solana development, wallets, and deploying your first program
+
+x402 Next Template
+Build and deploy your Next.js dApp with an X402 integration
+
+What are we looking for?
+Build open-source infrastructure and applications that advance the agent economy on Solana. Create tools that enable AI agents to transact autonomously, develop innovative payment solutions, or build practical agent applications. This is your opportunity to define how autonomous agents interact with the digital economy.
+
+Submission Requirements
+All code must be open sourced
+Projects must integrate x402 protocol or related agent infrastructure with Solana
+All programs must be deployed to Solana devnet or mainnet
+Submit a demo video (maximum 3 minutes) showcasing your project
+Include documentation on how to run and use your project
+Hackathon Tracks
+Compete in one of five categories. Each track has a $10,000 prize for the best submission.
+
+Best Trustless Agent
+Build Autonomous agents with identity, reputation, and validation systems.
+
+$10,000prize
+Best x402 API Integration
+Create Agent-to-agent payments and micropayments with x402.
+
+$10,000prize
+Best MCP Server
+Develop Model Context Protocol servers connecting AI agents to payments.
+
+$10,000prize
+Best x402 Dev Tool
+Create SDKs, libraries, frameworks, or infrastructure accelerate x402 development on Solana.
+
+$10,000prize
+Best x402 Agent Application
+Build practical AI agent applications that use x402 for autonomous payments.
+
+$10,000prize
+
+8 new bounties in the Solana x402 Hackathon were just added 🔥
+
+From 
+@Visa
+, 
+@Phantom
+, 
+@coinbase
+, and more below👇
+
+Post
+
+See new posts
+Conversation
+Solana
+@solana
+·
+Nov 2
+8 new bounties in the Solana x402 Hackathon were just added 🔥
+
+From 
+@Visa
+, 
+@Phantom
+, 
+@coinbase
+, and more below👇
+Quote
+Solana
+@solana
+·
+Oct 29
+The x402 Solana Hackathon is live 🔥
+
+It’s time to build at the frontier of payments: internet native, designed for AI
+
+$50,000 in prizes across 5 tracks 👇
+Solana
+@solana
+Best use of Visa TAP
+
+Create an agent that interfaces with Visa’s Trusted Agent Protocol.
+
+Prize: $10,000
+
+Sponsor: 
+@Visa
+
+Best use of CASH
+
+Build an x402 agent that uses Phantom CASH for payments.
+
+Prize: $10,000 in $CASH
+
+Sponsor: 
+@phantom
+
+Best Multi-Protocol Agent
+
+Build an agent that bridges multiple payment protocols.
+
+Prize: $10,000 in ATXP credits
+
+Sponsor: 
+@atxp_ai
+
+Best Usage of CDP Embedded Wallets
+
+Using CDP Embedded Wallets (SVM) build demand-side agents that autonomously discover, reason over, and pay for chained tool calls
+
+Prize: $5,000
+
+Sponsor: 
+@coinbase
+
+Parallax Eco Track
+
+Best agent built on top of Gradient Parallax.
+
+Prize: $5,000
+
+Sponsor: 
+@Gradient_HQ
+
+Best use of Switchboard
+
+Build with data from their permissionless oracle protocol
+
+Prize: $5,000
+
+Sponsor: 
+@switchboardxyz
+
+Best agent built on top of Dark open source repos
+
+Prize: $10,000
+
+Sponsor: 
+@darkresearchai
 
 
 ## x402-Flash on Solana — Detailed (10-Day, Doable) Architecture (Corrected Settlement Flow)

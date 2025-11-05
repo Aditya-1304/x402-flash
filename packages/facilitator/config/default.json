@@ -15,5 +15,8 @@
   },
   "redis": {
     "url": "redis://localhost:6379"
+  },
+  "atxp": {
+    "apiUrl": "https://api.atxp.io/v1"
   }
 }
