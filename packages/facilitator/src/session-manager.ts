@@ -55,7 +55,24 @@ export class SessionManager {
 
     try {
       const vaultAccount = await this.program.account.vault.fetch(vaultPda);
-      logger.info({ agentId, balance: vaultAccount.depositAmount.toString() }, "Vault validated");
+
+      // FIX: Check if vault has sufficient balance
+      if (vaultAccount.depositAmount.sub(vaultAccount.totalSettled).lte(new BN(0))) {
+        logger.warn({ agentId }, "Vault has insufficient balance. Disconnecting agent.");
+        ws.send(JSON.stringify({
+          type: "error",
+          message: "Vault has insufficient balance for streaming."
+        }));
+        ws.close();
+        return;
+      }
+
+      logger.info({
+        agentId,
+        balance: vaultAccount.depositAmount.toString(),
+        totalSettled: vaultAccount.totalSettled.toString(),
+        available: vaultAccount.depositAmount.sub(vaultAccount.totalSettled).toString()
+      }, "Vault validated");
 
       const [providerPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("provider"), providerAuthority.toBuffer()],
