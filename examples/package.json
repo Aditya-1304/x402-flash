@@ -5,10 +5,12 @@
   "description": "Production examples for x402-Flash",
   "scripts": {
     "autonomous": "ts-node autonomous-agent-demo.ts",
-    "phantom": "ts-node phantom-cash-streaming.ts",
+    "phantom": "ts-node phantom-cash-example.ts",
     "coinbase": "ts-node coinbase-cdp-integration.ts",
     "provider": "ts-node provider-registration.ts",
-    "full-demo": "ts-node full-stack-demo.ts"
+    "full-demo": "ts-node full-stack-demo.ts",
+    "x402": "ts-node x402-api-demo.ts",
+    "mcp": "ts-node mcp-agent-demo.ts"
   },
   "main": "index.js",
   "keywords": [],
@@ -21,7 +23,9 @@
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/web3.js": "^1.98.4",
     "tweetnacl": "^1.0.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "chalk": "^4.1.2",
+    "dotenv": "^16.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
