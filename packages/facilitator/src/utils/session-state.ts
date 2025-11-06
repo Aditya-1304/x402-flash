@@ -56,21 +56,37 @@ export class SessionStore {
       "EX",
       3600 // Expire after 1 hour
     );
+
+    logger.debug({ agentId }, "Session persisted to Redis");
   }
 
-  public async loadSession(
-    agentId: string
-  ): Promise<PersistedSession | null> {
+  // FIX: Return reconstructed objects, not raw persisted data
+  public async loadSession(agentId: string): Promise<{
+    agent: PublicKey;
+    providerAuthority: PublicKey;
+    vaultPda: PublicKey;
+    spentOffchain: BN;
+  } | null> {
     const data = await this.redis.get(`session:${agentId}`);
     if (!data) return null;
-    return JSON.parse(data);
+
+    const parsed: PersistedSession = JSON.parse(data);
+
+    return {
+      agent: new PublicKey(parsed.agent),
+      providerAuthority: new PublicKey(parsed.providerAuthority),
+      vaultPda: new PublicKey(parsed.vaultPda),
+      spentOffchain: new BN(parsed.spentOffchain),
+    };
   }
 
   public async deleteSession(agentId: string): Promise<void> {
     await this.redis.del(`session:${agentId}`);
+    logger.debug({ agentId }, "Session deleted from Redis");
   }
 
   public async close(): Promise<void> {
     await this.redis.quit();
+    logger.info("Redis connection closed");
   }
 }

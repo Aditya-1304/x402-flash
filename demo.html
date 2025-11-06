@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>x402-Flash: Production Demo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .log-entry {
+      border-bottom: 1px solid #374151;
+      padding-top: 6px;
+      padding-bottom: 6px;
+    }
+    .log-entry:last-child { border-bottom: none; }
+    .log-success { color: #22C55E; }
+    .log-error { color: #EF4444; }
+    .log-info { color: #60A5FA; }
+    .log-warn { color: #EAB308; }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-200 p-4 md:p-8">
+
+  <div class="max-w-6xl mx-auto">
+    <div class="flex flex-col md:flex-row justify-between md:items-center mb-6">
+      <div>
+        <h1 class="text-3xl font-bold text-white">x402-Flash</h1>
+        <p class="text-lg text-blue-400">Production Demo Dashboard</p>
+      </div>
+      <div class="text-sm text-gray-400 mt-2 md:mt-0">
+        Facilitator: <span id="facilitator-status" class="text-red-500 font-semibold">DISCONNECTED</span>
+      </div>
+    </div>
+
+    <!-- Live Metrics -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
+        <div class="text-sm font-medium text-gray-400">Off-Chain Tab</div>
+        <div id="tab-amount" class="text-3xl font-semibold text-white">0</div>
+        <div class="text-sm text-gray-500">lamports</div>
+      </div>
+      <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
+        <div class="text-sm font-medium text-gray-400">Packets / Sec</div>
+        <div id="packets-per-sec" class="text-3xl font-semibold text-white">0</div>
+        <div class="text-sm text-gray-500">simulated</div>
+      </div>
+      <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
+        <div class="text-sm font-medium text-gray-400">Last Settlement</div>
+        <div id="last-tx" class="text-lg font-semibold text-blue-400 truncate">
+          none
+        </div>
+        <div class="text-sm text-gray-500">on-chain tx</div>
+      </div>
+    </div>
+
+    <!-- Main Content Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Column 1: Setup & Bounties -->
+      <div class="lg:col-span-1 bg-gray-800 p-6 rounded-lg shadow-lg space-y-6">
+        <h2 class="text-xl font-semibold text-white border-b border-gray-700 pb-2">1. Setup Bounties</h2>
+        
+        <!-- Coinbase -->
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-1">Agent Wallet</label>
+          <button id="btn-connect-coinbase" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-all">
+            [Bounty] Connect Coinbase Wallet
+          </button>
+          <div id="agent-pubkey" class="text-sm text-gray-500 mt-2 truncate">Not Connected</div>
+        </div>
+
+        <!-- Visa / ATXP -->
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-1">Provider (as Agent)</label>
+          <button id="btn-register-provider" class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-all" disabled>
+            [Bounty] Register as Visa/ATXP Provider
+          </button>
+        </div>
+        
+        <!-- Phantom $CASH -->
+        <div>
+          <label for="token-mint" class="block text-sm font-medium text-gray-400 mb-1">Funding Token</label>
+          <select id="token-mint" class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg p-2">
+            <option id="mint-cash" value="CASH_MINT_PUBKEY">[Bounty] Phantom $CASH</option>
+            <option id="mint-usdc" value="USDC_MINT_PUBKEY">USDC (Devnet)</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="deposit-amount" class="block text-sm font-medium text-gray-400 mb-1">Deposit Amount (lamports)</label>
+          <input type="number" id="deposit-amount" class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg p-2" value="2000000">
+        </div>
+
+        <button id="btn-create-vault" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-all" disabled>
+          Create FlowVault
+        </button>
+      </div>
+
+      <!-- Column 2: Core Loop -->
+      <div class="lg:col-span-2 bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-xl font-semibold text-white border-b border-gray-700 pb-2">2. Core Logic Demo</h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-4">
+          <button id="btn-connect-facilitator" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-all" disabled>
+            Connect to Facilitator
+          </button>
+          <button id="btn-start-stream" class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-all" disabled>
+            Start Mock Stream (100 req/s)
+          </button>
+        </div>
+
+        <h3 class="text-lg font-semibold text-white mt-6 mb-2">Live Log</h3>
+        <div id="log-container" class="w-full h-96 bg-gray-900 rounded-lg p-4 font-mono text-sm overflow-y-auto border border-gray-700">
+          <div class="log-entry log-info">Demo initializing...</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 
+    This is where you import your SDK. 
+    You MUST bundle your SDK into a single JS file (e.g., with Webpack/esbuild) 
+    or this won't work.
+  -->
+  <!-- <script src="path/to/your/sdk.bundle.js"></script> -->
+  
+  <script type="module">
+    // --- THIS IS A MOCK OF YOUR SDK FOR DEMO ---
+    // Replace this with your actual SDK import
+    const { FlashClient, AutonomousSigner, BN, PublicKey, constants } = {
+      BN: class extends Number {}, // Mock BN
+      PublicKey: class { constructor(s) { this.s = s; } toBase58() { return this.s; } }, // Mock PublicKey
+      constants: {
+        CASH_MINT_DEVNET: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        USDC_MINT_DEVNET: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      },
+      AutonomousSigner: {},
+      FlashClient: class extends EventTarget {
+        constructor(conn, signer, opts) {
+          super();
+          this.signer = signer;
+          this.opts = opts;
+          this.log("SDK Initialized.");
+        }
+        
+        log(msg, type = "info") {
+          window.logToScreen(msg, type);
+        }
+        
+        // MOCK FUNCTIONS (Replace with your SDK)
+        async createVault(amount, mint) {
+          this.log(`Attempting to create vault with ${amount} of ${mint}...`);
+          await new Promise(r => setTimeout(r, 1500));
+          const txId = "4a...vX" + Math.floor(Math.random() * 1000);
+          this.log(`[BOUNTY: Phantom $CASH] Vault created with $CASH mint.`, "success");
+          this.log(`TX: ${txId}`, "success");
+          return txId;
+        }
+        
+        async registerProvider(opts) {
+          this.log("Registering as Provider...");
+          await new Promise(r => setTimeout(r, 1000));
+          this.log(`[BOUNTY: Visa TAP] Registered with ID: ${opts.visaMerchantId}`, "success");
+          this.log(`[BOUNTY: ATXP] Registered with protocol: ${Object.keys(opts.protocol)[0]}`, "success");
+          return "2b...yZ" + Math.floor(Math.random() * 1000);
+        }
+
+        connect(provider, visaJwt) {
+          this.log(`Connecting to ${this.opts.facilitatorUrl}...`);
+          this.log(`[BOUNTY: Visa TAP] Sending credential: ${visaJwt.substring(0, 10)}...`);
+          
+          // Mock WebSocket
+          setTimeout(() => {
+            this.log("Facilitator connected!", "success");
+            this.dispatchEvent(new Event("connect"));
+            
+            // Mock settlement request
+            setInterval(() => {
+              this.log("Facilitator requested signature...", "warn");
+              this.dispatchEvent(new CustomEvent("settlement_request", {
+                detail: { amount: new BN(200000), nonce: new BN(1) }
+              }));
+            }, 10000); // Request settlement every 10s
+          }, 1000);
+        }
+
+        async signAndSendSettlement(provider, amount, nonce) {
+          this.log(`[BOUNTY: Coinbase CDP] Autonomously signing settlement for ${amount} lamports...`);
+          await new Promise(r => setTimeout(r, 500));
+          this.log("Signature sent to facilitator.");
+          
+          // Mock confirmation
+          setTimeout(() => {
+            const txId = "5c...jW" + Math.floor(Math.random() * 1000);
+            this.dispatchEvent(new CustomEvent("settlement_confirmed", { detail: txId }));
+          }, 2000);
+        }
+      }
+    };
+    // --- END MOCK SDK ---
+
+
+    // --- UI Logic ---
+    const logContainer = document.getElementById("log-container");
+    const facilitatorStatus = document.getElementById("facilitator-status");
+    const tabAmount = document.getElementById("tab-amount");
+    const packetsPerSec = document.getElementById("packets-per-sec");
+    const lastTx = document.getElementById("last-tx");
+    const agentPubkey = document.getElementById("agent-pubkey");
+
+    const btnConnectCoinbase = document.getElementById("btn-connect-coinbase");
+    const btnRegisterProvider = document.getElementById("btn-register-provider");
+    const btnCreateVault = document.getElementById("btn-create-vault");
+    const btnConnectFacilitator = document.getElementById("btn-connect-facilitator");
+    const btnStartStream = document.getElementById("btn-start-stream");
+    
+    const mintSelect = document.getElementById("token-mint");
+    const depositAmountInput = document.getElementById("deposit-amount");
+
+    // Populate mints
+    document.getElementById("mint-cash").value = constants.CASH_MINT_DEVNET;
+    document.getElementById("mint-usdc").value = constants.USDC_MINT_DEVNET;
+
+    let client = null

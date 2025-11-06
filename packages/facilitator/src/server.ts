@@ -8,6 +8,7 @@ import { RateLimiter } from "./utils/rate-limiter";
 import { getHealthStatus } from "./utils/health";
 import { getMetricsRegistry, activeConnections } from "./utils/metrics";
 import { shutdownManager } from "./utils/shutdown";
+import { X402Middleware } from "./middleware/x402-middleware";
 
 const VISA_TAP_JWT_SECRET = process.env.VISA_TAP_JWT_SECRET;
 if (!VISA_TAP_JWT_SECRET) {
@@ -18,6 +19,7 @@ if (!VISA_TAP_JWT_SECRET) {
 export function startServer(port: number, sessionManager: SessionManager) {
   const rateLimiter = new RateLimiter(10, 60000); // 10 requests per minute
   const metricsRegistry = getMetricsRegistry();
+  const x402 = new X402Middleware(sessionManager);
 
   const server = createServer(async (req, res) => {
     // CORS headers for all responses
@@ -54,6 +56,33 @@ export function startServer(port: number, sessionManager: SessionManager) {
         res.writeHead(500);
         res.end(error.message);
       }
+      return;
+    }
+
+    if (req.url?.startsWith("/api/") && req.method === "GET") {
+      await x402.handle(req, res, () => {
+        // Protected endpoint logic
+        if (req.url === "/api/stream") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              data: "Protected streaming data chunk",
+              timestamp: Date.now(),
+            })
+          );
+        } else if (req.url === "/api/data") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              message: "Protected API data",
+              cost: 1000, // 0.001 USDC
+            })
+          );
+        } else {
+          res.writeHead(404);
+          res.end();
+        }
+      });
       return;
     }
 

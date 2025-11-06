@@ -20,6 +20,7 @@ const LAMPORTS_PER_SOL = 1_000_000_000;
 export class PriorityFeeOracle {
   private lastPriorityFee = DEFAULT_PRIORITY_FEE;
   private feedAccount: AggregatorAccount;
+  private DEFAULT_PRIORITY_FEE = 5000;
 
   private constructor(switchboardProgram: SwitchboardProgram) {
     const feedPubkey = new PublicKey(config.get<string>("switchboard.feedPubkey"));
@@ -44,28 +45,31 @@ export class PriorityFeeOracle {
    */
   private async fetchRpcPriorityFee(): Promise<number> {
     try {
-      const fees = await connection.getRecentPrioritizationFees();
-      if (fees.length === 0) {
-        logger.warn("RPC: getRecentPrioritizationFees returned empty. Using default.");
-        return DEFAULT_PRIORITY_FEE;
-      }
+      const recentFees = await connection.getRecentPrioritizationFees();
 
-      // Production-grade: P75 percentile of non-zero fees
-      const sortedFees = fees
-        .map((f) => f.prioritizationFee)
-        .filter((f) => f > 0)
-        .sort((a, b) => a - b);
+      // Filter non-zero fees
+      const nonZeroFees = recentFees
+        .map((fee) => fee.prioritizationFee)
+        .filter((fee) => fee > 0);
 
-      if (sortedFees.length === 0) {
+      if (nonZeroFees.length === 0) {
         logger.warn("RPC: No non-zero priority fees found. Using default.");
-        return DEFAULT_PRIORITY_FEE;
+        return this.DEFAULT_PRIORITY_FEE;
       }
 
-      const p75Index = Math.floor(sortedFees.length * 0.75);
-      return sortedFees[p75Index];
-    } catch (error) {
-      logger.error(error, "Failed to fetch RPC priority fee. Using default.");
-      return DEFAULT_PRIORITY_FEE;
+      // Use median of recent fees
+      nonZeroFees.sort((a, b) => a - b);
+      const median = nonZeroFees[Math.floor(nonZeroFees.length / 2)];
+
+      return median;
+    } catch (error: any) {
+      // Network errors are common - gracefully degrade
+      if (error.message?.includes("fetch failed") || error.message?.includes("AggregateError")) {
+        logger.warn("RPC: Network timeout, using cached/default fee");
+      } else {
+        logger.error({ err: error }, "Failed to fetch RPC priority fee. Using default.");
+      }
+      return this.DEFAULT_PRIORITY_FEE;
     }
   }
 

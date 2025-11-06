@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-flow_vault = "GACf7MzzDobMqJgDGfnaDJe7nCj5UoBoh93xLziomEoX"
+flow_vault = "Ca5JKghY5ECswAfm3NkvxeEXFmCongnnfkvpFyr5Yirg"
 
 [registry]
 url = "https://api.apr.dev"

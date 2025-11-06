@@ -171,17 +171,10 @@ export class SettlementEngine {
     );
 
     if (!this.atxpConnection) {
-      const simulatedTxId = `atxp_sim_${Date.now()}_${amount.toString()}`;
-
-      logger.warn(
-        { txId: simulatedTxId },
-        "[BOUNTY: ATXP] SIMULATED - Set ATXP_CONNECTION env var for production"
+      throw new Error(
+        "[BOUNTY: ATXP] ATXP_CONNECTION environment variable is required for ATXP settlements. " +
+        "Please configure ATXP connection string in .env"
       );
-
-      settlementsTotal.inc({ status: "success_atxp_simulated" });
-      this.circuitBreaker.onSuccess();
-
-      return simulatedTxId;
     }
 
     try {
@@ -230,14 +223,13 @@ export class SettlementEngine {
     } catch (error: any) {
       logger.error(
         { error: error.message },
-        "[BOUNTY: ATXP] ATXP settlement failed, falling back to simulation"
+        "[BOUNTY: ATXP] ATXP settlement failed"
       );
 
-      // Fallback to simulation
-      const simulatedTxId = `atxp_sim_${Date.now()}_${amount.toString()}`;
-      settlementsTotal.inc({ status: "success_atxp_simulated" });
-      this.circuitBreaker.onSuccess();
-      return simulatedTxId;
+      this.circuitBreaker.onFailure();
+      settlementsTotal.inc({ status: "failure_atxp" });
+
+      throw new Error(`ATXP settlement failed: ${error.message}`);
     }
   }
 
@@ -293,18 +285,26 @@ export class SettlementEngine {
       } as any)
       .instruction();
 
-    const instructions: TransactionInstruction[] = [ed25519Ix, settleBatchIx];
+    const instructions: TransactionInstruction[] = [];
 
+    // [BOUNTY: Switchboard] Get priority fee from hybrid oracle
     const priorityFee = this.priorityFeeOracle.getLatestPriorityFee();
 
     if (priorityFee > 0) {
       const computeBudgetIx = ComputeBudgetProgram.setComputeUnitPrice({
         microLamports: priorityFee,
       });
-      instructions.unshift(computeBudgetIx);
+      instructions.push(computeBudgetIx);
 
-      logger.debug({ priorityFee }, "Using dynamic priority fee");
+      logger.info(
+        { priorityFee, source: "Switchboard+RPC" },
+        "[BOUNTY: Switchboard] Optimizing transaction with dynamic priority fee"
+      );
     }
+
+    // Add signature verification and settlement instruction
+    instructions.push(ed25519Ix, settleBatchIx);
+
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
 

@@ -8,7 +8,7 @@ pub mod state;
 use instructions::*;
 use state::PaymentProtocol;
 
-declare_id!("GACf7MzzDobMqJgDGfnaDJe7nCj5UoBoh93xLziomEoX");
+declare_id!("Ca5JKghY5ECswAfm3NkvxeEXFmCongnnfkvpFyr5Yirg");
 
 #[program]
 pub mod flow_vault {

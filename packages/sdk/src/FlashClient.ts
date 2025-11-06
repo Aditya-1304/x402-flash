@@ -150,6 +150,43 @@ export class FlashClient extends EventEmitter<FlashClientEvents> {
     return this.signAndSendTransaction(tx);
   }
 
+  public async x402Fetch(
+    url: string,
+    options: RequestInit = {}
+  ): Promise<Response> {
+    if (!this.vaultPda) {
+      throw new Error("Must create a vault before making x402 requests");
+    }
+
+    if (!this.providerAuthority) {
+      throw new Error("Must call connect() before making x402 requests");
+    }
+
+    // Default price: 1000 lamports (0.001 USDC)
+    const pricePerRequest = 1000;
+
+    const headers = {
+      ...options.headers,
+      "X-402-Vault": this.vaultPda.toBase58(),
+      "X-402-Provider": this.providerAuthority.toBase58(),
+      "X-402-Price": pricePerRequest.toString(),
+    };
+
+    const response = await fetch(url, { ...options, headers });
+
+    if (response.status === 402) {
+      // Payment required - need to create vault or top up
+      const errorData: any = await response.json();
+      throw new Error(`Payment Required: ${errorData.message}`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return response;
+  }
+
   /**
    * Withdraws all remaining funds from the agent's vault.
    */
