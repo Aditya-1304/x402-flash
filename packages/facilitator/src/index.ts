@@ -31,7 +31,6 @@ async function main() {
   );
   const sessionManager = new SessionManager(settlementEngine, program);
 
-  // Register session manager cleanup on shutdown
   shutdownManager.register(async () => {
     logger.info("Shutting down session manager...");
     await sessionManager.cleanup();

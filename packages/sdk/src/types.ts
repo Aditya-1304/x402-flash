@@ -1,15 +1,12 @@
 import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
-// REMOVED: import { PaymentProtocol } from "./idl/flow_vault";
 
-// --- FIX 1: Manually define the PaymentProtocol type ---
-// This must match the enum in your Anchor program
 export type PaymentProtocol = {
-  nativeSpl: {}; // Represents the NativeSpl variant
+  nativeSpl: {};
 } | {
-  atxpBridge: {}; // Represents the AtxpBridge variant
+  atxpBridge: {};
 };
-// --- END FIX 1 ---
+
 
 /**
  * [BOUNTY: Coinbase CDP]
@@ -33,7 +30,6 @@ export interface AutonomousSigner {
 }
 
 export interface CoinbaseAgentKitWallet extends AutonomousSigner {
-  // Coinbase-specific methods
   exportWallet?: () => Promise<{
     seed: string;
     walletId: string;
@@ -57,7 +53,6 @@ export interface FlashClientEvents {
   connect: () => void;
   disconnect: () => void;
   error: (error: Error) => void;
-  // 'settlement_request' is no longer needed, the client handles it.
   settlement_confirmed: (txId: string) => void;
   settlement_failed: (reason?: string) => void;
 }

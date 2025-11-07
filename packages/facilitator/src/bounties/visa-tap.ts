@@ -19,7 +19,6 @@ export async function validateVisaTapMerchant(
   jwtToken: string
 ): Promise<boolean> {
   try {
-    // 1. Verify JWT signature
     const decoded = jwt.verify(jwtToken, VISA_TAP_JWT_SECRET) as {
       merchantId: string;
     };
@@ -32,8 +31,7 @@ export async function validateVisaTapMerchant(
       return false;
     }
 
-    // 2. Call Visa TAP API to validate merchant status
-    const response = await axios.get<VisaTapMerchant>( // 🔧 FIX: Add type parameter
+    const response = await axios.get<VisaTapMerchant>(
       `${VISA_TAP_API_BASE}/tap/v1/merchants/${merchantId}`,
       {
         headers: {
@@ -52,7 +50,7 @@ export async function validateVisaTapMerchant(
       return false;
     }
 
-    const merchant = response.data; // 🔧 FIX: Now properly typed
+    const merchant = response.data;
 
     logger.info(
       { merchantId, name: merchant.name, status: merchant.status },

@@ -15,8 +15,8 @@ export function constructSettlementMessage(
   const prefix = Buffer.from("X402_FLOW_SETTLE");
   const vaultBuffer = vaultPda.toBuffer();
   const providerBuffer = providerPda.toBuffer();
-  const amountBuffer = amount.toBuffer("le", 8); // 8 bytes for u64, little-endian
-  const nonceBuffer = nonce.toBuffer("le", 8);   // 8 bytes for u64, little-endian
+  const amountBuffer = amount.toBuffer("le", 8);
+  const nonceBuffer = nonce.toBuffer("le", 8);
 
   return Buffer.concat([
     prefix,

@@ -7,7 +7,7 @@ const ATXP_BRIDGE_URL = process.env.ATXP_BRIDGE_URL || "https://atxp-bridge.exam
 
 export interface AtxpSettlementRequest {
   sourceChain: "solana";
-  destinationChain: string; // e.g., "ethereum", "polygon"
+  destinationChain: string;
   amount: string;
   recipient: string;
   solanaVault: string;
@@ -53,7 +53,7 @@ export async function settleViaAtxp(
           "Content-Type": "application/json",
           "X-ATXP-API-Key": process.env.ATXP_API_KEY || "demo-key",
         },
-        timeout: 30000, // 30 seconds for cross-chain
+        timeout: 30000,
       }
     );
 

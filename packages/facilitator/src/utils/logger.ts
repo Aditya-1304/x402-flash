@@ -3,7 +3,6 @@ import config from "config";
 
 const logLevel = config.get<string>("logLevel");
 
-// Redact sensitive fields from logs
 const redactPaths = [
   'rpcUrl',
   'apiKey',

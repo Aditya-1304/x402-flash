@@ -13,8 +13,8 @@ import config from "config";
   3. Our Facilitator combines these two data points to modulate its bid—bidding more aggressively when SOL is cheap and more conservatively when it's expensive. This makes our agent economically intelligent, and it's all thanks to the real-time data from **Switchboard**.
 */
 
-const DEFAULT_PRIORITY_FEE = 5000; // Fallback: 0.000005 SOL
-const UPDATE_INTERVAL_MS = 10000; // Update every 10 seconds
+const DEFAULT_PRIORITY_FEE = 5000;
+const UPDATE_INTERVAL_MS = 10000;
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
 export class PriorityFeeOracle {
@@ -30,7 +30,6 @@ export class PriorityFeeOracle {
       "Initialized Hybrid Priority Fee Oracle (RPC + Switchboard)"
     );
 
-    // Immediately fetch and then update periodically
     this.fetchPriorityFee();
     setInterval(() => this.fetchPriorityFee(), UPDATE_INTERVAL_MS);
   }
@@ -47,7 +46,6 @@ export class PriorityFeeOracle {
     try {
       const recentFees = await connection.getRecentPrioritizationFees();
 
-      // Filter non-zero fees
       const nonZeroFees = recentFees
         .map((fee) => fee.prioritizationFee)
         .filter((fee) => fee > 0);
@@ -57,13 +55,11 @@ export class PriorityFeeOracle {
         return this.DEFAULT_PRIORITY_FEE;
       }
 
-      // Use median of recent fees
       nonZeroFees.sort((a, b) => a - b);
       const median = nonZeroFees[Math.floor(nonZeroFees.length / 2)];
 
       return median;
     } catch (error: any) {
-      // Network errors are common - gracefully degrade
       if (error.message?.includes("fetch failed") || error.message?.includes("AggregateError")) {
         logger.warn("RPC: Network timeout, using cached/default fee");
       } else {
@@ -96,28 +92,23 @@ export class PriorityFeeOracle {
   public async fetchPriorityFee(): Promise<void> {
     const maxUsdFee = config.get<number>("fees.maxUsdPriorityFee");
 
-    // 1. Get Baseline Fee from RPC
     const baselineRpcFee = await this.fetchRpcPriorityFee();
 
-    // 2. Get SOL Price from Switchboard
     const solPrice = await this.fetchSolPrice();
 
     if (solPrice === null) {
-      // If Switchboard fails, just use the reliable RPC data
       logger.warn("Switchboard failed, falling back to RPC-only fee.");
       this.lastPriorityFee = baselineRpcFee;
       priorityFee.set(this.lastPriorityFee);
       return;
     }
 
-    // 3. Production-Grade Hybrid Heuristic
     const baselineFeeInSol = baselineRpcFee / LAMPORTS_PER_SOL;
     const baselineFeeInUsd = baselineFeeInSol * solPrice;
 
     let finalFee: number;
 
     if (baselineFeeInUsd > maxUsdFee) {
-      // The market rate is too expensive. We must cap our bid.
       const maxFeeInSol = maxUsdFee / solPrice;
       finalFee = Math.floor(maxFeeInSol * LAMPORTS_PER_SOL);
       logger.warn(

@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/flow_vault.json`.
  */
 export type FlowVault = {
-  "address": "GACf7MzzDobMqJgDGfnaDJe7nCj5UoBoh93xLziomEoX",
+  "address": "Ca5JKghY5ECswAfm3NkvxeEXFmCongnnfkvpFyr5Yirg",
   "metadata": {
     "name": "flowVault",
     "version": "0.1.0",

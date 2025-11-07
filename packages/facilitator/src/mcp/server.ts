@@ -35,7 +35,6 @@ async function initializeClient(): Promise<void> {
   const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
   const connection = new Connection(rpcUrl, "confirmed");
 
-  // Load or generate agent keypair
   const keypairPath = path.join(
     os.homedir(),
     ".config",
@@ -162,13 +161,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         duration?: number;
       };
 
-      // Connect to facilitator
       flashClient.connect(
         new PublicKey(provider),
         process.env.VISA_TAP_JWT || "dummy-jwt"
       );
 
-      // Make x402 API call
       const response = await flashClient.x402Fetch(apiUrl);
       const data = await response.json();
 
@@ -190,7 +187,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const mint = tokenMint
         ? new PublicKey(tokenMint)
-        : new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"); // USDC devnet
+        : new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 
       const txSig = await flashClient.createVault(
         new BN(depositAmount),
@@ -208,7 +205,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     case "x402_check_balance": {
-      // This would require fetching vault state from chain
       return {
         content: [
           {

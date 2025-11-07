@@ -13,15 +13,13 @@ export class CircuitBreaker {
   private failureCount = 0;
   private successCount = 0;
   private lastFailureTime: number | null = null;
-
-  // Configuration
-  private failureThreshold: number; // Max consecutive failures before opening
-  private recoveryTimeout: number; // How long to stay OPEN (in ms)
-  private successThreshold: number; // How many successes in HALF_OPEN to close
+  private failureThreshold: number;
+  private recoveryTimeout: number;
+  private successThreshold: number;
 
   constructor(
     failureThreshold = 5,
-    recoveryTimeout = 30000, // 30 seconds
+    recoveryTimeout = 30000,
     successThreshold = 3
   ) {
     this.failureThreshold = failureThreshold;
@@ -41,14 +39,12 @@ export class CircuitBreaker {
         now - this.lastFailureTime > this.recoveryTimeout
       ) {
         this.state = "HALF_OPEN";
-        this.successCount = 0; // Reset for HALF_OPEN test
+        this.successCount = 0;
         logger.warn("CircuitBreaker state moving to HALF_OPEN");
-        return true; // Allow one test operation
+        return true;
       }
-      return false; // Still OPEN
+      return false;
     }
-
-    // CLOSED or HALF_OPEN
     return true;
   }
 
@@ -64,7 +60,6 @@ export class CircuitBreaker {
         logger.info("CircuitBreaker state moved to CLOSED (system recovered)");
       }
     } else {
-      // If CLOSED, just reset failure count
       this.failureCount = 0;
     }
   }
@@ -76,7 +71,6 @@ export class CircuitBreaker {
     this.failureCount++;
 
     if (this.state === "HALF_OPEN") {
-      // The test operation failed
       this.state = "OPEN";
       this.lastFailureTime = Date.now();
       logger.error(
@@ -86,7 +80,6 @@ export class CircuitBreaker {
       this.state === "CLOSED" &&
       this.failureCount >= this.failureThreshold
     ) {
-      // Tripped the breaker
       this.state = "OPEN";
       this.lastFailureTime = Date.now();
       logger.error(

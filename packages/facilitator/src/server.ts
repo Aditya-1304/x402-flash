@@ -22,7 +22,6 @@ export function startServer(port: number, sessionManager: SessionManager) {
   const x402 = new X402Middleware(sessionManager);
 
   const server = createServer(async (req, res) => {
-    // CORS headers for all responses
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -33,7 +32,6 @@ export function startServer(port: number, sessionManager: SessionManager) {
       return;
     }
 
-    // Health check endpoint
     if (req.url === "/health" && req.method === "GET") {
       try {
         const health = await getHealthStatus();
@@ -47,7 +45,6 @@ export function startServer(port: number, sessionManager: SessionManager) {
       return;
     }
 
-    // Metrics endpoint
     if (req.url === "/metrics" && req.method === "GET") {
       try {
         res.setHeader("Content-Type", metricsRegistry.contentType);
@@ -61,7 +58,6 @@ export function startServer(port: number, sessionManager: SessionManager) {
 
     if (req.url?.startsWith("/api/") && req.method === "GET") {
       await x402.handle(req, res, () => {
-        // Protected endpoint logic
         if (req.url === "/api/stream") {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(
@@ -75,7 +71,7 @@ export function startServer(port: number, sessionManager: SessionManager) {
           res.end(
             JSON.stringify({
               message: "Protected API data",
-              cost: 1000, // 0.001 USDC
+              cost: 1000,
             })
           );
         } else {
@@ -86,7 +82,6 @@ export function startServer(port: number, sessionManager: SessionManager) {
       return;
     }
 
-    // Usage reporting endpoint
     if (req.url === "/report-usage" && req.method === "POST") {
       try {
         let body = "";
@@ -117,7 +112,6 @@ export function startServer(port: number, sessionManager: SessionManager) {
   wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
     const clientIp = req.socket.remoteAddress || "unknown";
 
-    // Rate limiting
     if (!rateLimiter.isAllowed(clientIp)) {
       logger.warn({ ip: clientIp }, "Rate limit exceeded for IP");
       ws.send(JSON.stringify({ type: "error", message: "Rate limit exceeded" }));
@@ -190,7 +184,6 @@ export function startServer(port: number, sessionManager: SessionManager) {
     logger.info(`Metrics: http://localhost:${port}/metrics`);
   });
 
-  // Register graceful shutdown
   shutdownManager.register(async () => {
     logger.info("Closing WebSocket server...");
     wss.close();

@@ -4,7 +4,7 @@ import { PublicKey } from "@solana/web3.js";
  * The on-chain Program ID for the FlowVault program.
  */
 export const FLOW_VAULT_PROGRAM_ID = new PublicKey(
-  "GACf7MzzDobMqJgDGfnaDJe7nCj5UoBoh93xLziomEoX"
+  "Ca5JKghY5ECswAfm3NkvxeEXFmCongnnfkvpFyr5Yirg"
 );
 
 /**

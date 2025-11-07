@@ -54,13 +54,12 @@ export class SessionStore {
       `session:${agentId}`,
       JSON.stringify(data),
       "EX",
-      3600 // Expire after 1 hour
+      3600
     );
 
     logger.debug({ agentId }, "Session persisted to Redis");
   }
 
-  // FIX: Return reconstructed objects, not raw persisted data
   public async loadSession(agentId: string): Promise<{
     agent: PublicKey;
     providerAuthority: PublicKey;

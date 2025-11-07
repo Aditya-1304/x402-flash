@@ -77,7 +77,6 @@ export class SettlementEngine {
       provider as any
     );
 
-    // Initialize ATXP
     this.initializeAtxp();
   }
 
@@ -113,7 +112,6 @@ export class SettlementEngine {
 
       const providerAccount = await this.program.account.provider.fetch(providerPda);
 
-      // [BOUNTY: ATXP] Route to ATXP if configured
       if (providerAccount.protocol.atxpBridge) {
         return await this.settleViaAtxp(
           agent,
@@ -178,12 +176,10 @@ export class SettlementEngine {
     }
 
     try {
-      // Parse ATXP connection string
       const url = new URL(this.atxpConnection);
       const connectionToken = url.searchParams.get("connection_token");
       const accountId = url.searchParams.get("account_id");
 
-      // Call ATXP API for cross-chain settlement
       const response = await axios.post<AtxpSettlementResponse>(
         "https://api.atxp.ai/v1/settlements",
         {
@@ -253,7 +249,6 @@ export class SettlementEngine {
       this.program.programId
     );
 
-    // [BOUNTY: Visa TAP] Log merchant ID if present
     if (providerAccount.visaMerchantId) {
       logger.info(
         {
@@ -287,7 +282,6 @@ export class SettlementEngine {
 
     const instructions: TransactionInstruction[] = [];
 
-    // [BOUNTY: Switchboard] Get priority fee from hybrid oracle
     const priorityFee = this.priorityFeeOracle.getLatestPriorityFee();
 
     if (priorityFee > 0) {
@@ -302,9 +296,7 @@ export class SettlementEngine {
       );
     }
 
-    // Add signature verification and settlement instruction
     instructions.push(ed25519Ix, settleBatchIx);
-
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
 

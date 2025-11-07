@@ -1,12 +1,9 @@
 import client from "prom-client";
 
-// Create a Registry
 const register = new client.Registry();
 
-// Add default metrics (CPU, memory, etc.)
 client.collectDefaultMetrics({ register });
 
-// Custom metrics
 export const activeConnections = new client.Gauge({
   name: "x402_active_connections",
   help: "Number of active WebSocket connections",
@@ -16,7 +13,7 @@ export const activeConnections = new client.Gauge({
 export const settlementsTotal = new client.Counter({
   name: "x402_settlements_total",
   help: "Total number of settlement attempts",
-  labelNames: ["status"], // success, failure
+  labelNames: ["status"],
   registers: [register],
 });
 

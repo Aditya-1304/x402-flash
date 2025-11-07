@@ -14,7 +14,6 @@ export class RateLimiter {
     this.maxRequests = maxRequests;
     this.windowMs = windowMs;
 
-    // Cleanup old entries every minute
     setInterval(() => this.cleanup(), 60000);
   }
 
@@ -30,7 +29,6 @@ export class RateLimiter {
     const timePassed = now - entry.firstRequest;
 
     if (timePassed > this.windowMs) {
-      // Reset the window
       this.requests.set(identifier, { count: 1, firstRequest: now });
       return true;
     }

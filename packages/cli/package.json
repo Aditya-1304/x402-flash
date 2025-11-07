@@ -1,26 +1,36 @@
 {
-  "name": "cli",
+  "name": "@x402-flash/cli",
   "version": "1.0.0",
-  "description": "CLI tools for x402-Flash",
+  "description": "x402-Flash CLI for autonomous agent payments",
   "main": "dist/index.js",
+  "bin": {
+    "x402-flash": "./dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
     "clean": "rm -rf dist"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
+    "@coinbase/coinbase-sdk": "^0.10.0",
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/web3.js": "^1.98.4",
-    "commander": "^11.0.0",
+    "bn.js": "^5.2.1",
     "chalk": "^4.1.2",
-    "dotenv": "^16.0.0"
+    "cli-table3": "^0.6.5",
+    "commander": "^11.1.0",
+    "dotenv": "^16.6.1",
+    "jsonwebtoken": "^9.0.2",
+    "ora": "^9.0.0",
+    "tweetnacl": "^1.0.3",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.3.0",
-    "ts-node": "^10.9.2"
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^20.19.24",
+    "@types/ws": "^8.18.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }

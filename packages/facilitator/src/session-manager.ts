@@ -5,7 +5,7 @@ import config from "config";
 import { logger } from "./utils/logger";
 import { SettlementEngine } from "./settlement-engine";
 import { FlowVault } from "./idl/flow_vault";
-import { SessionStore } from "./utils/session-state"; // Add import
+import { SessionStore } from "./utils/session-state";
 
 interface Session {
   ws: WebSocket;
@@ -21,7 +21,7 @@ export class SessionManager {
   private sessions = new Map<string, Session>();
   private settlementThreshold: BN;
   private settlementPeriodMs: number;
-  private sessionStore: SessionStore; // Add this
+  private sessionStore: SessionStore;
 
   constructor(
     private settlementEngine: SettlementEngine,
@@ -31,7 +31,7 @@ export class SessionManager {
       config.get<number>("settlement.threshold")
     );
     this.settlementPeriodMs = config.get<number>("settlement.periodMs");
-    this.sessionStore = new SessionStore(); // Initialize Redis store
+    this.sessionStore = new SessionStore();
 
     logger.info(
       {
@@ -58,7 +58,6 @@ export class SessionManager {
     );
 
     try {
-      // Try to restore session from Redis first
       const persistedSession = await this.sessionStore.loadSession(agentId);
       let spentOffchain = new BN(0);
 
@@ -72,7 +71,6 @@ export class SessionManager {
 
       const vaultAccount = await this.program.account.vault.fetch(vaultPda);
 
-      // Check if vault has sufficient balance
       if (vaultAccount.depositAmount.sub(vaultAccount.totalSettled).lte(new BN(0))) {
         logger.warn({ agentId }, "Vault has insufficient balance. Disconnecting agent.");
         ws.send(JSON.stringify({
@@ -114,7 +112,6 @@ export class SessionManager {
 
       this.sessions.set(agentId, session);
 
-      // Persist to Redis
       await this.sessionStore.saveSession(agentId, {
         agent,
         providerAuthority,
@@ -147,7 +144,6 @@ export class SessionManager {
       "Usage reported"
     );
 
-    // Persist updated state to Redis
     await this.sessionStore.saveSession(agentId, {
       agent: session.agent,
       providerAuthority: session.providerAuthority,
@@ -168,8 +164,6 @@ export class SessionManager {
     clearInterval(session.settlementTimer);
     this.sessions.delete(agentId);
 
-    // Keep session in Redis for potential reconnection
-    // Don't delete it - it will expire in 1 hour
     logger.info({ agentId }, "Agent disconnected, session kept in Redis for reconnection");
   }
 
@@ -292,11 +286,9 @@ export class SessionManager {
     }
   }
 
-  // Add cleanup method for graceful shutdown
   public async cleanup(): Promise<void> {
     logger.info("Cleaning up session manager...");
 
-    // Save all active sessions to Redis before shutdown
     const savePromises = Array.from(this.sessions.entries()).map(
       async ([agentId, session]) => {
         await this.sessionStore.saveSession(agentId, {

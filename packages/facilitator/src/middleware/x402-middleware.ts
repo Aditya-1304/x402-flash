@@ -28,7 +28,6 @@ export class X402Middleware {
     const provider = req.headers[X402_PROVIDER_HEADER] as string | undefined;
     const priceStr = req.headers[X402_PRICE_HEADER] as string | undefined;
 
-    // Check if payment headers are present
     if (!vault || !provider || !priceStr) {
       logger.warn(
         { url: req.url, headers: req.headers },
@@ -57,12 +56,10 @@ export class X402Middleware {
     try {
       const price = new BN(priceStr);
 
-      // Attach parsed values to request
       req.vault = vault;
       req.provider = provider;
       req.price = price;
 
-      // Report usage to session manager
       await this.sessionManager.reportUsage(vault, price);
 
       logger.info(
@@ -70,7 +67,6 @@ export class X402Middleware {
         "x402 payment accepted"
       );
 
-      // Payment accepted, proceed with request
       next();
     } catch (error) {
       logger.error(error, "Error processing x402 payment");

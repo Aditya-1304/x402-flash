@@ -24,7 +24,6 @@ export class GracefulShutdown {
     this.isShuttingDown = true;
     logger.info({ signal }, "Received shutdown signal, cleaning up...");
 
-    // Execute all handlers
     for (const handler of this.handlers) {
       try {
         await handler();

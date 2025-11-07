@@ -15,10 +15,8 @@ const connectionConfig: ConnectionConfig = {
 
 export const connection = new Connection(rpcUrl, connectionConfig);
 
-// Redact API key from URL for logging
 const sanitizedUrl = rpcUrl.replace(/api-key=[^&]+/, 'api-key=[REDACTED]');
 
-// Verify connection on startup
 connection
   .getSlot()
   .then((slot) => {
