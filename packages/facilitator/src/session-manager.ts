@@ -18,7 +18,8 @@ interface Session {
 }
 
 export class SessionManager {
-  private sessions = new Map<string, Session>();
+  public sessions = new Map<string, Session>();
+  private dashboardObservers = new Set<WebSocket>();
   private settlementThreshold: BN;
   private settlementPeriodMs: number;
   private sessionStore: SessionStore;
@@ -166,7 +167,9 @@ export class SessionManager {
 
     logger.info({ agentId }, "Agent disconnected, session kept in Redis for reconnection");
   }
-
+  public async triggerSettlement(agentId: string): Promise<void> {
+    await this.triggerSettlementCheck(agentId);
+  }
   private async triggerSettlementCheck(agentId: string) {
     const session = this.sessions.get(agentId);
     if (!session) {
@@ -186,6 +189,10 @@ export class SessionManager {
       );
       return;
     }
+    if (!this.settlementEngine.canSettle()) {
+      logger.warn({ agentId }, "Circuit breaker is OPEN, skipping settlement request");
+      return;
+    }
 
     const vaultAccount = await this.program.account.vault.fetch(
       session.vaultPda
@@ -203,8 +210,20 @@ export class SessionManager {
         type: "request_signature",
         amount: amount.toString(),
         nonce: nonce.toString(),
+        vaultPda: session.vaultPda.toBase58(),
+        providerAuthority: session.providerAuthority.toBase58(),
       })
     );
+  }
+
+  public registerDashboard(ws: WebSocket): void {
+    this.dashboardObservers.add(ws);
+    logger.info("Dashboard observer registered");
+
+    ws.on("close", () => {
+      this.dashboardObservers.delete(ws);
+      logger.info("Dashboard observer removed");
+    });
   }
 
   async handleSignature(
@@ -248,7 +267,16 @@ export class SessionManager {
       if (txId) {
         session.spentOffchain = session.spentOffchain.sub(amount);
 
-        // Update Redis
+        const settlementEvent = {
+          type: "settlement_confirmed",
+          txId: txId,
+          amount: amount.toString(),
+          agentId: agentId,
+        };
+
+        this.broadcastToAll(settlementEvent);
+        this.broadcastToDashboards(settlementEvent);
+
         await this.sessionStore.saveSession(agentId, {
           agent: session.agent,
           providerAuthority: session.providerAuthority,
@@ -265,6 +293,7 @@ export class SessionManager {
         );
         logger.info({ agentId, txId }, "Settlement confirmed");
       } else {
+        // ❌ Circuit breaker blocked
         session.ws.send(
           JSON.stringify({
             type: "settlement_failed",
@@ -275,15 +304,56 @@ export class SessionManager {
       }
     } catch (error: any) {
       logger.error(error, "Error processing settlement signature");
+
       session.ws.send(
         JSON.stringify({
           type: "settlement_failed",
           message: error.message,
+          fatal: true,
         })
       );
+
     } finally {
       session.isSettling = false;
     }
+  }
+
+  private broadcastToAll(message: any): void {
+    const msgString = JSON.stringify(message);
+    this.sessions.forEach((session) => {
+      if (session.ws.readyState === WebSocket.OPEN) {
+        session.ws.send(msgString);
+      }
+    });
+  }
+
+  private broadcastToDashboards(message: any): void {
+    const msgString = JSON.stringify(message);
+    this.dashboardObservers.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(msgString);
+      }
+    });
+  }
+  public getSettlementThreshold(): BN {
+    return this.settlementThreshold;
+  }
+
+  public broadcastMetrics(): void {
+    const sessions = Array.from(this.sessions.values());
+    const metricsUpdate = {
+      type: "session_update",
+      timestamp: Date.now(),
+      sessions: sessions.map(s => ({
+        sessionId: s.agent.toBase58().substring(0, 16),
+        agentPubkey: s.agent.toBase58(),
+        consumed: s.spentOffchain.toNumber(),
+        packetsDelivered: Math.floor(s.spentOffchain.toNumber() / 1000),
+      })),
+    };
+
+    console.log(`📊 Broadcasting metrics: ${sessions.length} sessions`);
+    this.broadcastToDashboards(metricsUpdate);
   }
 
   public async cleanup(): Promise<void> {
@@ -305,3 +375,4 @@ export class SessionManager {
     logger.info("Session manager cleanup complete");
   }
 }
+

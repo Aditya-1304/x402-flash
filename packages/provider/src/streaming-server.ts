@@ -37,6 +37,7 @@ export class StreamingServer {
   private dataGen: DataGenerator;
   private config: ProviderConfig;
   private activeStreams: Map<string, StreamSession> = new Map();
+  private metricsInterval?: NodeJS.Timeout;
   private server?: HTTPServer;
   private providerClient: FlashClient;
   private providerKeypair: Keypair;
@@ -144,7 +145,17 @@ export class StreamingServer {
   }
 
   private setupRoutes(): void {
-    this.app.use(express.json());
+    this.app.use((req, res, next) => {
+      res.setHeader("Access-Control-Allow-Origin", "http://localhost:3000");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+      if (req.method === "OPTIONS") {
+        res.sendStatus(200);
+        return;
+      }
+      next();
+    });
 
     this.app.get('/health', (req, res) => {
       res.json({
@@ -270,7 +281,7 @@ export class StreamingServer {
 
   private startDataStream(session: StreamSession): void {
     const SETTLEMENT_THRESHOLD = 100000;
-
+    const REPORT_INTERVAL = 10;
     const interval = setInterval(() => {
       if (!session.ws || session.ws.readyState !== WebSocket.OPEN) {
         clearInterval(interval);
@@ -289,8 +300,12 @@ export class StreamingServer {
       session.consumed += this.config.pricePerPacket;
       session.packetsDelivered++;
 
-      if (session.consumed % SETTLEMENT_THRESHOLD === 0) {
+      if (session.packetsDelivered % REPORT_INTERVAL === 0) {
         this.reportUsageToFacilitator(session);
+      }
+
+      if (session.consumed >= SETTLEMENT_THRESHOLD && session.consumed % SETTLEMENT_THRESHOLD < this.config.pricePerPacket) {
+        console.log(`[Provider] Threshold reached for session ${session.sessionId}`);
       }
 
       if (session.packetsDelivered % 100 === 0) {
@@ -304,16 +319,19 @@ export class StreamingServer {
 
   private reportUsageToFacilitator(session: StreamSession): void {
     if (this.facilitatorWs && this.facilitatorWs.readyState === WebSocket.OPEN) {
-      console.log(`[Provider] Requesting settlement: ${session.consumed} lamports`);
-
       this.facilitatorWs.send(JSON.stringify({
         type: 'usage_report',
         vaultPubkey: session.vaultPubkey,
         agentPubkey: session.agentPubkey,
         providerPubkey: this.providerKeypair.publicKey.toBase58(),
         amount: session.consumed,
+        packetsDelivered: session.packetsDelivered,
         sessionId: session.sessionId
       }));
+
+      console.log(`[Provider] Reported usage: ${session.packetsDelivered} packets, ${session.consumed} lamports`);
+    } else {
+      console.warn('[Provider] Cannot report usage - facilitator not connected');
     }
   }
 
@@ -332,6 +350,24 @@ export class StreamingServer {
     return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  private broadcastMetrics(): void {
+    if (this.facilitatorWs && this.facilitatorWs.readyState === WebSocket.OPEN) {
+      const totalPackets = Array.from(this.activeStreams.values())
+        .reduce((sum, s) => sum + s.packetsDelivered, 0);
+
+      this.facilitatorWs.send(JSON.stringify({
+        type: "metrics",
+        totalPackets,
+        packetsPerSec: this.calculatePacketsPerSec(),
+        activeSessions: this.activeStreams.size,
+      }));
+    }
+  }
+
+  private calculatePacketsPerSec(): number {
+    return this.activeStreams.size * 10;
+  }
+
   async start(): Promise<void> {
     await this.initialize();
 
@@ -345,12 +381,25 @@ export class StreamingServer {
       });
     });
 
+    this.metricsInterval = setInterval(() => {
+      this.broadcastMetrics();
+    }, 1000);
+
     console.log(`[Provider] WebSocket server ready`);
     console.log(`[Provider] Price: ${this.config.pricePerPacket} lamports/packet`);
   }
 
+
   stop(): void {
     console.log('[Provider] Shutting down...');
+
+    if (this.metricsInterval) {
+      clearInterval(this.metricsInterval);
+    }
+
+    if (this.facilitatorWs) {
+      this.facilitatorWs.close();
+    }
 
     if (this.facilitatorWs) {
       this.facilitatorWs.close();

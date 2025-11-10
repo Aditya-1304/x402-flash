@@ -35,7 +35,7 @@ export class FlashClient extends EventEmitter<FlashClientEvents> {
   private options: FlashClientOptions;
   private program: Program<FlowVault>;
   private provider: AnchorProvider;
-  private ws: WebSocket | null = null;
+  public ws: WebSocket | null = null;
 
   private vaultPda: PublicKey;
   private providerAuthority: PublicKey | null = null;

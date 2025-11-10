@@ -3,15 +3,19 @@
   "version": "1.0.0",
   "private": true,
   "workspaces": [
-    "packages/sdk",
-    "packages/facilitator",
-    "examples"
+    "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=packages/sdk && npm run build --workspace=packages/facilitator",
+    "build": "npm run build:sdk && npm run build:provider && npm run build:cli && npm run build:facilitator",
     "build:sdk": "npm run build --workspace=packages/sdk",
+    "build:provider": "npm run build --workspace=packages/provider",
+    "build:cli": "npm run build --workspace=packages/cli",
     "build:facilitator": "npm run build --workspace=packages/facilitator",
+    "dev:provider": "npm run dev --workspace=packages/provider",
     "dev:facilitator": "npm run dev --workspace=packages/facilitator",
+    "dev:cli": "npm run dev --workspace=packages/cli",
+    "clean": "npm run clean --workspaces --if-present",
+    "install:all": "npm install",
     "example:coinbase": "npm run coinbase --workspace=examples",
     "example:phantom": "npm run phantom --workspace=examples",
     "example:x402": "ts-node examples/x402-api-demo.ts",
@@ -21,15 +25,17 @@
     "verify": "./scripts/verify-setup.sh",
     "test:x402": "ts-node scripts/test-x402flow.ts",
     "init:program": "ts-node scripts/init-program.ts",
-    "demo": "ts-node scripts/demo-flow.ts"
+    "demo": "ts-node scripts/demo-flow.ts",
+    "init-config": "ts-node scripts/init-config.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.3.0",
+    "chalk": "^4.1.2",
     "ts-node": "^10.9.2",
-    "chalk": "^4.1.2"
+    "typescript": "^5.3.0"
   },
   "dependencies": {
+    "dotenv": "^17.2.3",
     "eventemitter3": "^5.0.1",
     "ws": "^8.18.3"
   }

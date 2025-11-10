@@ -7,6 +7,7 @@ import {
   Ed25519Program,
   ComputeBudgetProgram,
   SYSVAR_INSTRUCTIONS_PUBKEY,
+  SystemProgram
 } from "@solana/web3.js";
 import { Program, BN } from "@coral-xyz/anchor";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
@@ -249,6 +250,19 @@ export class SettlementEngine {
       this.program.programId
     );
 
+    const NATIVE_SOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+    const isNativeSol = vaultAccount.tokenMint.equals(NATIVE_SOL_MINT);
+
+    logger.info(
+      {
+        vault: vaultPda.toBase58(),
+        tokenMint: vaultAccount.tokenMint.toBase58(),
+        isNativeSol,
+        vaultTokenAccount: vaultAccount.vaultTokenAccount?.toBase58() || "none",
+      },
+      "Vault payment type detected"
+    );
+
     if (providerAccount.visaMerchantId) {
       logger.info(
         {
@@ -265,20 +279,44 @@ export class SettlementEngine {
       signature: signature,
     });
 
-    const settleBatchIx = await this.program.methods
-      .settleBatch(amount, nonce)
-      .accounts({
-        facilitator: this.facilitatorKeypair.publicKey,
-        agent: agent,
-        vault: vaultPda,
-        vaultTokenAccount: vaultAccount.vaultTokenAccount,
-        globalConfig: configPda,
-        provider: providerPda,
-        destination: providerAccount.destination,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-      } as any)
-      .instruction();
+    let settleBatchIx: TransactionInstruction;
+
+    if (isNativeSol) {
+      logger.info("✅ Using native SOL settlement (no Token Program)");
+
+      settleBatchIx = await this.program.methods
+        .settleBatch(amount, nonce)
+        .accounts({
+          facilitator: this.facilitatorKeypair.publicKey,
+          agent: agent,
+          vault: vaultPda,
+          globalConfig: configPda,
+          provider: providerPda,
+          destination: providerAccount.destination,
+          systemProgram: SystemProgram.programId,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        } as any)
+        .instruction();
+
+    } else {
+      logger.info("Using SPL token settlement (with Token Program)");
+
+      settleBatchIx = await this.program.methods
+        .settleBatch(amount, nonce)
+        .accounts({
+          facilitator: this.facilitatorKeypair.publicKey,
+          agent: agent,
+          vault: vaultPda,
+          vaultTokenAccount: vaultAccount.vaultTokenAccount,
+          globalConfig: configPda,
+          provider: providerPda,
+          destination: providerAccount.destination,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        } as any)
+        .instruction();
+    }
 
     const instructions: TransactionInstruction[] = [];
 
@@ -309,34 +347,62 @@ export class SettlementEngine {
     const tx = new VersionedTransaction(message);
     tx.sign([this.facilitatorKeypair]);
 
+    logger.info({
+      txAccounts: instructions[instructions.length - 1].keys.map(k => ({
+        pubkey: k.pubkey.toBase58(),
+        isSigner: k.isSigner,
+        isWritable: k.isWritable
+      }))
+    }, "Settlement transaction accounts");
+
     const txId = await connection.sendTransaction(tx, {
       skipPreflight: false,
       maxRetries: 3,
     });
 
-    const confirmation = await connection.confirmTransaction(
-      {
-        signature: txId,
-        blockhash,
-        lastValidBlockHeight,
-      },
-      "confirmed"
-    );
+    try {
+      const confirmation = await connection.confirmTransaction(
+        {
+          signature: txId,
+          blockhash,
+          lastValidBlockHeight,
+        },
+        "confirmed"
+      );
 
-    if (confirmation.value.err) {
-      throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      if (confirmation.value.err) {
+        const txDetails = await connection.getTransaction(txId, {
+          maxSupportedTransactionVersion: 0,
+        });
+
+        logger.error({
+          error: confirmation.value.err,
+          logs: txDetails?.meta?.logMessages,
+          txId
+        }, "Transaction failed with logs");
+
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}\nLogs: ${JSON.stringify(txDetails?.meta?.logMessages)}`);
+      }
+
+      logger.info(
+        { txId, amount: amount.toString(), slot: confirmation.context.slot },
+        "Settlement confirmed on-chain"
+      );
+
+      this.circuitBreaker.onSuccess();
+      settlementsTotal.inc({ status: "success" });
+      settlementAmount.observe(amount.toNumber());
+
+      return txId;
+
+    } catch (error: any) {
+      logger.error({ txId, error: error.message }, "Settlement confirmation failed");
+      throw error;
     }
+  }
 
-    logger.info(
-      { txId, amount: amount.toString(), slot: confirmation.context.slot },
-      "Settlement confirmed on-chain"
-    );
-
-    this.circuitBreaker.onSuccess();
-    settlementsTotal.inc({ status: "success" });
-    settlementAmount.observe(amount.toNumber());
-
-    return txId;
+  public canSettle(): boolean {
+    return this.circuitBreaker.canAttempt();
   }
 
   private constructMessage(

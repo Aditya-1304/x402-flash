@@ -1,12 +1,34 @@
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
+import { findProviderPda } from '../../../sdk/dist/utils/vault-pda';
 import { FlashClient } from '../../../sdk/dist/FlashClient';
-import { constructSettlementMessage } from '../../../sdk/dist/utils/signature';
+// import { constructSettlementMessage } from '../../../sdk/dist/utils/signature';
 import { displaySuccess, displayError, displayInfo, displayStreamMetrics } from '../utils/display';
 import WebSocket from 'ws';
 import ora from 'ora';
 import fs from 'fs';
 import jwt from 'jsonwebtoken';
 import BN from 'bn.js';
+
+function constructSettlementMessage(
+  vaultPda: PublicKey,
+  providerPda: PublicKey,
+  amount: BN,
+  nonce: BN
+): Buffer {
+  const prefix = Buffer.from("X402_FLOW_SETTLE");
+  const vaultBuffer = vaultPda.toBuffer();
+  const providerBuffer = providerPda.toBuffer();
+  const amountBuffer = amount.toBuffer("le", 8);
+  const nonceBuffer = nonce.toBuffer("le", 8);
+
+  return Buffer.concat([
+    prefix,
+    vaultBuffer,
+    providerBuffer,
+    amountBuffer,
+    nonceBuffer,
+  ]);
+}
 
 export async function streamCommand(options: any) {
   console.log('\n' + '='.repeat(60));
@@ -108,64 +130,78 @@ export async function streamCommand(options: any) {
     if (options.autoSettle) {
       displayInfo('[Auto-Settlement] Enabled - Agent will sign settlements autonomously');
 
-      client.on('message' as any, async (data: any) => {
-        try {
-          const message = JSON.parse(data);
+      const waitForWs = setInterval(() => {
+        if (client.ws && client.ws.readyState === WebSocket.OPEN) {
+          clearInterval(waitForWs);
 
-          if (message.type === 'request_signature') {
-            console.log('\n⚡ Settlement Request Received');
-            console.log(`   Amount: ${message.amount} lamports`);
-            console.log(`   Nonce:  ${message.nonce}`);
+          console.log('[Auto-Settlement] Listening for settlement requests...');
 
-            if (options.cdp) {
-              displayInfo('[BOUNTY: Coinbase CDP] Signing settlement autonomously (no popup)...');
-            }
-
-            const spinner = ora('Signing settlement...').start();
-
+          client.ws.on('message', async (data: Buffer) => {
             try {
-              const vaultPda = new PublicKey(options.vault);
-              const providerPda = new PublicKey(providerPubkey);
-              const amount = new BN(message.amount);
-              const nonce = new BN(message.nonce);
+              const message = JSON.parse(data.toString());
 
-              const settlementMessage = constructSettlementMessage(
-                vaultPda,
-                providerPda,
-                amount,
-                nonce
-              );
 
-              const nacl = await import('tweetnacl');
-              const signature = nacl.sign.detached(settlementMessage, agentKeypair.secretKey);
+              if (message.type === 'request_signature') {
+                console.log('\n⚡ Settlement Request Received');
+                console.log(`   Amount: ${message.amount} lamports`);
+                console.log(`   Nonce:  ${message.nonce}`);
 
-              (client as any).ws.send(JSON.stringify({
-                type: 'settlement_signature',
-                amount: message.amount,
-                nonce: message.nonce,
-                signature: Buffer.from(signature).toString('base64')
-              }));
+                if (options.cdp) {
+                  displayInfo('[BOUNTY: Coinbase CDP] Signing settlement autonomously');
+                }
 
-              spinner.succeed('Settlement signed and sent');
+                const spinner = ora('Signing settlement...').start();
+
+                try {
+                  const vaultPda = new PublicKey(message.vaultPda);
+                  const providerAuthority = new PublicKey(message.providerAuthority);
+
+                  const [providerPda] = findProviderPda(providerAuthority);
+
+                  const amount = new BN(message.amount);
+                  const nonce = new BN(message.nonce);
+
+
+                  const settlementMessage = constructSettlementMessage(
+                    vaultPda,
+                    providerPda,
+                    amount,
+                    nonce
+                  );
+
+                  const nacl = await import('tweetnacl');
+                  const signature = nacl.sign.detached(settlementMessage, agentKeypair.secretKey);
+
+                  client.ws!.send(JSON.stringify({
+                    type: 'settlement_signature',
+                    amount: message.amount,
+                    nonce: message.nonce,
+                    signature: Buffer.from(signature).toString('base64')
+                  }));
+
+                  spinner.succeed('Settlement signed and sent');
+                } catch (error: any) {
+                  spinner.fail('Settlement signing failed');
+                  displayError(error.message);
+                }
+              }
+
+              if (message.type === 'settlement_confirmed') {
+                displaySuccess(`💰 Settlement confirmed: ${message.txId}`);
+                console.log(`   Amount settled: ${parseInt(message.amount) / 1_000_000_000} SOL`);
+                displayInfo('[BOUNTY: Switchboard] Dynamic priority fee applied');
+              }
+
+              if (message.type === 'settlement_failed') {
+                displayError(`❌ Settlement failed: ${message.message}`);
+              }
+
             } catch (error: any) {
-              spinner.fail('Settlement signing failed');
-              displayError(error.message);
+              console.error('Error handling message:', error.message);
             }
-          }
-
-          if (message.type === 'settlement_confirmed') {
-            displaySuccess(`Settlement confirmed: ${message.txId}`);
-            displayInfo('[BOUNTY: Switchboard] Dynamic priority fee applied');
-          }
-
-          if (message.type === 'settlement_failed') {
-            displayError(`Settlement failed: ${message.message}`);
-          }
-
-        } catch (error: any) {
-          console.error('Error handling facilitator message:', error.message);
+          });
         }
-      });
+      }, 100);
     }
 
     const providerSpinner = ora(`Connecting to provider ${options.provider}...`).start();

@@ -1,6 +1,7 @@
 import { createServer, IncomingMessage } from "http";
 import WebSocket from "ws";
 import jwt from "jsonwebtoken";
+import { BN } from "@coral-xyz/anchor";
 import { logger } from "./utils/logger";
 import { SessionManager } from "./session-manager";
 import config from "config";
@@ -16,15 +17,22 @@ if (!VISA_TAP_JWT_SECRET) {
   process.exit(1);
 }
 
+
+
 export function startServer(port: number, sessionManager: SessionManager) {
-  const rateLimiter = new RateLimiter(10, 60000); // 10 requests per minute
+  const rateLimiter = new RateLimiter(10, 60000);
   const metricsRegistry = getMetricsRegistry();
   const x402 = new X402Middleware(sessionManager);
 
+  setInterval(() => {
+    sessionManager.broadcastMetrics();
+  }, 1000);
+
   const server = createServer(async (req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Origin", "http://localhost:3000");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
 
     if (req.method === "OPTIONS") {
       res.writeHead(200);
@@ -90,7 +98,6 @@ export function startServer(port: number, sessionManager: SessionManager) {
         });
         req.on("end", () => {
           const { agentId, amount } = JSON.parse(body);
-          const BN = require("@coral-xyz/anchor").BN;
           sessionManager.reportUsage(agentId, new BN(amount));
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ success: true }));
@@ -126,6 +133,104 @@ export function startServer(port: number, sessionManager: SessionManager) {
     }
 
     const url = new URL(req.url, `http://${req.headers.host}`);
+    const clientType = url.searchParams.get("type");
+
+    if (clientType === "dashboard") {
+      logger.info("Dashboard observer connected");
+      activeConnections.inc();
+      sessionManager.registerDashboard(ws);
+
+      ws.on("message", async (message: string) => {
+        try {
+          const data = JSON.parse(message);
+
+          if (data.type === "request_metrics") {
+            const sessions = Array.from(sessionManager.sessions.values());
+            ws.send(JSON.stringify({
+              type: "session_update",
+              timestamp: Date.now(),
+              sessions: sessions.map(s => ({
+                sessionId: s.agent.toBase58().substring(0, 16),
+                agentPubkey: s.agent.toBase58(),
+                consumed: s.spentOffchain.toNumber(),
+                packetsDelivered: Math.floor(s.spentOffchain.toNumber() / 1000),
+              })),
+            }));
+          }
+        } catch (e) {
+          logger.error(e, "Invalid dashboard message");
+        }
+      });
+
+      ws.on("close", () => {
+        activeConnections.dec();
+        logger.info("Dashboard observer disconnected");
+      });
+
+      return;
+    }
+
+    if (clientType === "provider") {
+      const providerPubkey = url.searchParams.get("provider");
+      logger.info({ provider: providerPubkey }, "Provider connected to facilitator");
+
+      ws.on("message", async (message: string) => {
+        try {
+          const data = JSON.parse(message);
+
+          if (data.type === "usage_report") {
+            const { agentPubkey, amount, packetsDelivered } = data;
+
+            logger.debug({
+              agent: agentPubkey,
+              amount,
+              packets: packetsDelivered
+            }, "Received usage report from provider");
+
+            const agentId = agentPubkey;
+            const session = sessionManager.sessions.get(agentId);
+
+            if (session) {
+              const reportedAmount = new BN(amount);
+              session.spentOffchain = reportedAmount;
+
+              logger.info({
+                agent: agentId,
+                consumed: session.spentOffchain.toString(),
+                packets: packetsDelivered
+              }, "Session updated with usage");
+
+              if (session.spentOffchain.gte(sessionManager.getSettlementThreshold())) {
+                logger.info({
+                  agent: agentId,
+                  spent: session.spentOffchain.toString(),
+                  threshold: sessionManager.getSettlementThreshold().toString()
+                }, "🔥 Threshold exceeded, triggering settlement NOW");
+
+
+                await sessionManager.triggerSettlement(agentId);
+              }
+            } else {
+              logger.warn({ agent: agentId }, "Usage report for unknown session");
+            }
+          }
+
+          if (data.type === "provider_session_start") {
+            logger.info(data, "Provider started new session");
+          }
+
+        } catch (e) {
+          logger.error(e, "Error handling provider message");
+        }
+      });
+
+      ws.on("close", () => {
+        logger.info({ provider: providerPubkey }, "Provider disconnected");
+      });
+
+      return;
+    }
+
     const agentPubkey = url.searchParams.get("agent");
     const providerPubkey = url.searchParams.get("provider");
     const visaTapCredential = url.searchParams.get("visa_tap_credential");
@@ -159,6 +264,22 @@ export function startServer(port: number, sessionManager: SessionManager) {
     ws.on("message", (message: string) => {
       try {
         const data = JSON.parse(message);
+
+        if (data.type === "request_metrics") {
+          const sessions = Array.from(sessionManager.sessions.values());
+          ws.send(JSON.stringify({
+            type: "metrics",
+            timestamp: Date.now(),
+            sessions: sessions.map(s => ({
+              sessionId: s.agent.toBase58().substring(0, 16),
+              agentPubkey: s.agent.toBase58(),
+              consumed: s.spentOffchain.toNumber(),
+              packetsDelivered: Math.floor(s.spentOffchain.toNumber() / 1000),
+            })),
+            packetsPerSec: sessions.length * 10,
+          }));
+        }
+
         if (data.type === "settlement_signature") {
           sessionManager.handleSignature(
             agentPubkey,
