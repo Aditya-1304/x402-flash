@@ -16,7 +16,9 @@
     "@coinbase/coinbase-sdk": "^0.10.0",
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/web3.js": "^1.98.4",
+    "axios": "^1.13.2",
     "bn.js": "^5.2.1",
+    "bs58": "^6.0.0",
     "chalk": "^4.1.2",
     "cli-table3": "^0.6.5",
     "commander": "^11.1.0",
@@ -27,6 +29,7 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@types/bs58": "^4.0.4",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^20.19.24",
     "@types/ws": "^8.18.1",

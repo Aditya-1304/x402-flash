@@ -4,6 +4,7 @@ import { createVaultCommand } from './commands/create-vault';
 import { streamCommand } from './commands/stream';
 import { statsCommand } from './commands/stats';
 import { withdrawCommand } from './commands/withdraw';
+import { x402Request } from './commands/x402-request';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -48,5 +49,23 @@ program
   .requiredOption('-v, --vault <address>', 'Vault public key')
   .option('-w, --wallet <path>', 'Path to agent wallet keypair')
   .action(withdrawCommand);
+
+program
+  .command('x402')
+  .description('Make an x402 HTTP request with payment proof')
+  .requiredOption('-e, --endpoint <url>', 'API endpoint URL')
+  .requiredOption('-w, --wallet <path>', 'Path to wallet keypair')
+  .requiredOption('-v, --vault <address>', 'Vault address')
+  .option('-m, --method <method>', 'HTTP method (GET/POST)', 'GET')
+  .option('-d, --data <json>', 'Request body (for POST)')
+  .action((options) => {
+    x402Request({
+      endpoint: options.endpoint,
+      wallet: options.wallet,
+      vault: options.vault,
+      method: options.method,
+      data: options.data ? JSON.parse(options.data) : undefined,
+    });
+  });
 
 program.parse();
