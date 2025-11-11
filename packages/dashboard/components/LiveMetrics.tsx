@@ -69,7 +69,7 @@ export default function LiveMetrics({
                 <Icon className="w-4 h-4 text-white" />
               </div>
             </div>
-            {/* ✅ FIX: Suppress hydration warning for client-side values */}
+            {/* Suppress hydration warning for client-side values */}
             <p className="text-3xl font-bold text-white" suppressHydrationWarning>
               {metric.value}
             </p>

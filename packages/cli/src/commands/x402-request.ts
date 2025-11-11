@@ -15,7 +15,6 @@ interface X402RequestOptions {
 export async function x402Request(options: X402RequestOptions) {
   console.log('🌐 Making x402 HTTP Request\n');
 
-  // Load wallet
   const walletData = JSON.parse(fs.readFileSync(options.wallet, 'utf-8'));
   const keypair = Keypair.fromSecretKey(new Uint8Array(walletData));
 
@@ -23,10 +22,9 @@ export async function x402Request(options: X402RequestOptions) {
   console.log(`Vault:    ${options.vault}`);
   console.log(`Endpoint: ${options.endpoint}\n`);
 
-  // First, try without payment to get price
   try {
     const initialResponse = await axios.get(options.endpoint, {
-      validateStatus: () => true, // Don't throw on 402
+      validateStatus: () => true,
     });
 
     if (initialResponse.status === 402) {
@@ -40,7 +38,6 @@ export async function x402Request(options: X402RequestOptions) {
       const price = parseInt(initialResponse.headers['x402-price'] || '1000');
       const nonce = Date.now();
 
-      // Create payment proof
       const message = Buffer.from(`${options.vault}:${price}:${nonce}`);
       const signature = nacl.sign.detached(message, keypair.secretKey);
 
@@ -57,7 +54,6 @@ export async function x402Request(options: X402RequestOptions) {
       console.log(`  Nonce:     ${nonce}`);
       console.log(`  Signature: ${paymentProof.signature.slice(0, 20)}...\n`);
 
-      // Retry with payment proof
       console.log('Sending request with payment proof...\n');
 
       const paidResponse = await axios({
@@ -75,7 +71,6 @@ export async function x402Request(options: X402RequestOptions) {
       console.log(JSON.stringify(paidResponse.data, null, 2));
 
     } else {
-      // No payment required
       console.log('✅ Request Successful (no payment required)!\n');
       console.log('Response:');
       console.log(JSON.stringify(initialResponse.data, null, 2));

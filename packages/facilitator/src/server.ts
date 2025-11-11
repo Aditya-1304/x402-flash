@@ -178,7 +178,6 @@ export function startServer(port: number, sessionManager: SessionManager) {
         try {
           const data = JSON.parse(message);
 
-          // ✅ Handle x402 HTTP requests - ONLY track usage, broadcast ONCE
           if (data.type === "x402_http_request") {
             logger.info({
               endpoint: data.endpoint,
@@ -186,12 +185,10 @@ export function startServer(port: number, sessionManager: SessionManager) {
               amount: data.payment?.amount,
             }, "[x402-HTTP] Processing HTTP payment request");
 
-            // ✅ Track usage for settlement (WITHOUT broadcasting)
             if (data.payment?.vault && data.payment?.amount) {
               const session = sessionManager.sessions.get(data.payment.vault);
 
               if (session) {
-                // ✅ Update session state directly without broadcasting
                 session.spentOffchain = session.spentOffchain.add(new BN(data.payment.amount));
 
                 logger.debug(
@@ -203,7 +200,7 @@ export function startServer(port: number, sessionManager: SessionManager) {
                   "[x402-HTTP] Usage tracked for settlement"
                 );
 
-                // ✅ Check if threshold exceeded (trigger settlement if needed)
+
                 if (session.spentOffchain.gte(sessionManager.getSettlementThreshold())) {
                   logger.info({
                     vault: data.payment.vault,
@@ -218,12 +215,9 @@ export function startServer(port: number, sessionManager: SessionManager) {
                   "[x402-HTTP] Received payment for unknown session, creating temporary session"
                 );
 
-                // ✅ For HTTP-only clients (no WebSocket session), track usage separately
-                // This allows HTTP 402 to work without active WebSocket connection
               }
             }
 
-            // ✅ Broadcast ONCE to dashboards ONLY
             sessionManager.broadcastToDashboards({
               type: "x402_http_request",
               endpoint: data.endpoint,
@@ -233,11 +227,9 @@ export function startServer(port: number, sessionManager: SessionManager) {
 
             logger.debug("[x402-HTTP] Request broadcasted to dashboards (ONCE)");
 
-            // ✅ Return early to prevent any fallthrough
             return;
           }
 
-          // ✅ Keep existing usage_report handler for WebSocket streaming
           if (data.type === "usage_report") {
             const { agentPubkey, amount, packetsDelivered } = data;
 
@@ -272,12 +264,12 @@ export function startServer(port: number, sessionManager: SessionManager) {
               logger.warn({ agent: agentId }, "Usage report for unknown session");
             }
 
-            return; // ✅ Return early
+            return;
           }
 
           if (data.type === "provider_session_start") {
             logger.info(data, "Provider started new session");
-            return; // ✅ Return early
+            return;
           }
 
         } catch (e) {

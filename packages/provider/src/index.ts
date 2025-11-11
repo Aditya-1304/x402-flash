@@ -22,7 +22,7 @@ const httpServer = new X402HttpServer(
   config.pricePerPacket,
   config.destinationTokenAccount,
   config.visaMerchantId,
-  config.facilitatorUrl // Pass facilitator URL
+  config.facilitatorUrl
 );
 
 (async () => {

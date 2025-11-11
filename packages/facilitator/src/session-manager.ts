@@ -267,13 +267,12 @@ export class SessionManager {
       if (txId) {
         session.spentOffchain = session.spentOffchain.sub(amount);
 
-        // ✅ FIX: Include vaultPda so frontend can match HTTP requests
         const settlementEvent = {
           type: "settlement_confirmed",
           txId: txId,
           amount: amount.toString(),
           agentId: agentId,
-          vaultPda: session.vaultPda.toBase58(), // ✅ ADD THIS
+          vaultPda: session.vaultPda.toBase58(),
         };
 
         this.broadcastToAll(settlementEvent);
@@ -295,7 +294,6 @@ export class SessionManager {
         );
         logger.info({ agentId, txId }, "Settlement confirmed");
       } else {
-        // ❌ Circuit breaker blocked
         session.ws.send(
           JSON.stringify({
             type: "settlement_failed",
@@ -357,7 +355,6 @@ export class SessionManager {
   public broadcastMetrics(): void {
     const sessions = Array.from(this.sessions.values());
 
-    // ✅ Only send session_update, not HTTP requests
     const metricsUpdate = {
       type: "session_update",
       timestamp: Date.now(),
@@ -378,14 +375,12 @@ export class SessionManager {
   public broadcastToAllClients(message: Record<string, unknown>): void {
     const msgString = JSON.stringify(message);
 
-    // Broadcast to agent sessions
     this.sessions.forEach((session) => {
       if (session.ws.readyState === WebSocket.OPEN) {
         session.ws.send(msgString);
       }
     });
 
-    // Broadcast to dashboard observers
     this.dashboardObservers.forEach((ws) => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(msgString);

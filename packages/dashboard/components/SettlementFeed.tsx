@@ -32,7 +32,7 @@ export default function SettlementFeed({
         <p className="text-sm text-slate-400">On-Chain Settlements</p>
       </div>
 
-      {/* ✅ Scrollable list with max height */}
+      {/* Scrollable list with max height */}
       <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
         {settlements.length === 0 ? (
           <div className="text-center py-8">
@@ -76,7 +76,6 @@ export default function SettlementFeed({
         )}
       </div>
 
-      {/* ✅ Optional: Show total settled amount */}
       {settlements.length > 0 && (
         <div className="mt-4 pt-4 border-t border-slate-700">
           <div className="flex items-center justify-between text-sm">

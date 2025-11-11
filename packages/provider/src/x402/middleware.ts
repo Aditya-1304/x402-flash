@@ -28,7 +28,6 @@ export class X402Middleware {
       return this.sendPaymentRequired(res);
     }
 
-    // Verify payment proof
     try {
       const proof: X402PaymentProof = JSON.parse(paymentHeader);
 
@@ -38,8 +37,6 @@ export class X402Middleware {
           message: 'Payment signature verification failed',
         });
       }
-
-      // Check if payment amount is sufficient
       if (proof.amount < this.pricePerRequest) {
         return res.status(402).json({
           error: 'Insufficient payment',
@@ -48,7 +45,6 @@ export class X402Middleware {
         });
       }
 
-      // Attach payment info to request for later use
       (req as any).x402Payment = proof;
 
       next();
@@ -86,16 +82,13 @@ export class X402Middleware {
    */
   private verifyPaymentProof(proof: X402PaymentProof): boolean {
     try {
-      // Reconstruct the message that was signed
       const message = Buffer.from(
         `${proof.vault}:${proof.amount}:${proof.nonce}`
       );
 
-      // Decode signature and public key
       const signature = bs58.decode(proof.signature);
       const publicKey = bs58.decode(proof.publicKey);
 
-      // Verify signature
       return nacl.sign.detached.verify(message, signature, publicKey);
     } catch (error) {
       console.error('Signature verification error:', error);

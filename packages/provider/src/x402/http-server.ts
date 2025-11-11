@@ -76,8 +76,6 @@ export class X402HttpServer {
     this.httpRequestCount++;
 
     if (this.facilitatorWs?.readyState === WebSocket.OPEN) {
-      // ✅ Send clean x402_http_request message
-      // Facilitator will handle BOTH dashboard display AND settlement tracking
       const message = {
         type: 'x402_http_request',
         endpoint,

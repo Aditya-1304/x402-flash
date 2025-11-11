@@ -48,8 +48,6 @@ interface WebSocketMessage {
 const processedRequests = new Set<string>();
 
 export default function Dashboard() {
-  // ✅ PROPER FIX: Use lazy initialization to load from localStorage ONCE
-  // This function only runs once on mount, not on every render
   const [settlements, setSettlements] = useState<Settlement[]>(() => {
     if (typeof window === 'undefined') return [];
     const stored = loadMetrics();
@@ -144,20 +142,18 @@ export default function Dashboard() {
             }
           }
 
-          // ✅ Handle x402 HTTP requests (dashboard display + usage tracking)
+    
           if (data.type === "x402_http_request") {
             const requestKey = `${data.payment?.vault}-${data.payment?.nonce}-${data.timestamp}`;
         
-        // ✅ Skip if we've already processed this exact request
+  
         if (processedRequests.has(requestKey)) {
           console.log('⚠️ Duplicate request ignored:', requestKey);
           return;
         }
-        
-        // ✅ Mark as processed
+
         processedRequests.add(requestKey);
         
-        // ✅ Clean up old entries (keep last 100)
         if (processedRequests.size > 100) {
           const firstKey = processedRequests.values().next().value;
           if (firstKey) {
@@ -167,7 +163,6 @@ export default function Dashboard() {
 
         console.log('🌐 x402 HTTP request received!', data);
             
-            // Increment HTTP request counter ONCE
             setHttpRequests(prev => {
               const newCount = prev + 1;
               console.log(`📊 HTTP Requests: ${prev} → ${newCount}`);
@@ -175,7 +170,6 @@ export default function Dashboard() {
               return newCount;
             });
 
-            // Add to recent requests feed
             if (data.endpoint && data.timestamp && data.payment?.vault) {
               setRecentHttpRequests(prev => {
                 const newRequest = {
@@ -209,13 +203,11 @@ export default function Dashboard() {
     return updated;
   });
 
-  // ✅ FIX: Match HTTP requests by vaultPda
   if (data.txId && data.amount && data.vaultPda) {
     console.log(`🔗 Linking settlement ${data.txId} to vault ${data.vaultPda}`);
     
     setRecentHttpRequests(prev => 
       prev.map(req => {
-        // Match requests from this vault that don't have a settlement yet
         if (req.vault === data.vaultPda && !req.settlement) {
           console.log(`✅ Linked request ${req.endpoint} to settlement`);
           return {
@@ -442,7 +434,7 @@ export default function Dashboard() {
                       <span className="text-green-400">✓ Paid</span>
                     </div>
 
-                    {/* ✅ NEW: Show settlement link if settled */}
+                    {/* Show settlement link if settled */}
                     {req.settlement && (
                       <a
                         href={`https://explorer.solana.com/tx/${req.settlement.txId}?cluster=devnet`}
@@ -466,7 +458,7 @@ export default function Dashboard() {
 
                <div suppressHydrationWarning>
   {httpRequests > 0 && (
-    <div  className="mt-4 pt-4 border-t border-slate-700">
+    <div suppressHydrationWarning className="mt-4 pt-4 border-t border-slate-700">
       <div className="flex items-center justify-between text-sm">
         <span className="text-slate-400">Est. Revenue (HTTP)</span>
         <span className="text-green-400 font-mono font-bold">
