@@ -267,11 +267,13 @@ export class SessionManager {
       if (txId) {
         session.spentOffchain = session.spentOffchain.sub(amount);
 
+        // ✅ FIX: Include vaultPda so frontend can match HTTP requests
         const settlementEvent = {
           type: "settlement_confirmed",
           txId: txId,
           amount: amount.toString(),
           agentId: agentId,
+          vaultPda: session.vaultPda.toBase58(), // ✅ ADD THIS
         };
 
         this.broadcastToAll(settlementEvent);
@@ -327,20 +329,35 @@ export class SessionManager {
     });
   }
 
-  private broadcastToDashboards(message: any): void {
+  public broadcastToDashboards(message: any): void {
     const msgString = JSON.stringify(message);
+    let sent = 0;
+
+    console.log(`[DEBUG] Broadcasting ${message.type} to ${this.dashboardObservers.size} dashboards`);
+
     this.dashboardObservers.forEach((ws) => {
       if (ws.readyState === WebSocket.OPEN) {
+        console.log(`[DEBUG] Sending to dashboard ${sent + 1}`);
         ws.send(msgString);
+        sent++;
       }
     });
+
+    logger.debug(
+      { type: message.type, dashboards: sent },
+      "Broadcasted to dashboards"
+    );
   }
+
+
   public getSettlementThreshold(): BN {
     return this.settlementThreshold;
   }
 
   public broadcastMetrics(): void {
     const sessions = Array.from(this.sessions.values());
+
+    // ✅ Only send session_update, not HTTP requests
     const metricsUpdate = {
       type: "session_update",
       timestamp: Date.now(),
@@ -355,6 +372,8 @@ export class SessionManager {
     console.log(`📊 Broadcasting metrics: ${sessions.length} sessions`);
     this.broadcastToDashboards(metricsUpdate);
   }
+
+
 
   public broadcastToAllClients(message: Record<string, unknown>): void {
     const msgString = JSON.stringify(message);

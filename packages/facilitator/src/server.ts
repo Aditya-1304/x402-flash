@@ -178,26 +178,66 @@ export function startServer(port: number, sessionManager: SessionManager) {
         try {
           const data = JSON.parse(message);
 
-          // NEW: Handle x402 HTTP requests from provider
+          // ✅ Handle x402 HTTP requests - ONLY track usage, broadcast ONCE
           if (data.type === "x402_http_request") {
             logger.info({
               endpoint: data.endpoint,
               vault: data.payment?.vault,
-              totalRequests: data.totalRequests
-            }, "x402 HTTP request received from provider");
+              amount: data.payment?.amount,
+            }, "[x402-HTTP] Processing HTTP payment request");
 
-            // ✅ Use the SAME broadcast method that works for settlements
-            sessionManager.broadcastToAllClients({
+            // ✅ Track usage for settlement (WITHOUT broadcasting)
+            if (data.payment?.vault && data.payment?.amount) {
+              const session = sessionManager.sessions.get(data.payment.vault);
+
+              if (session) {
+                // ✅ Update session state directly without broadcasting
+                session.spentOffchain = session.spentOffchain.add(new BN(data.payment.amount));
+
+                logger.debug(
+                  {
+                    vault: data.payment.vault,
+                    amount: data.payment.amount,
+                    totalSpent: session.spentOffchain.toString()
+                  },
+                  "[x402-HTTP] Usage tracked for settlement"
+                );
+
+                // ✅ Check if threshold exceeded (trigger settlement if needed)
+                if (session.spentOffchain.gte(sessionManager.getSettlementThreshold())) {
+                  logger.info({
+                    vault: data.payment.vault,
+                    spent: session.spentOffchain.toString(),
+                  }, "🔥 HTTP request threshold exceeded, triggering settlement");
+
+                  await sessionManager.triggerSettlement(data.payment.vault);
+                }
+              } else {
+                logger.warn(
+                  { vault: data.payment.vault },
+                  "[x402-HTTP] Received payment for unknown session, creating temporary session"
+                );
+
+                // ✅ For HTTP-only clients (no WebSocket session), track usage separately
+                // This allows HTTP 402 to work without active WebSocket connection
+              }
+            }
+
+            // ✅ Broadcast ONCE to dashboards ONLY
+            sessionManager.broadcastToDashboards({
               type: "x402_http_request",
               endpoint: data.endpoint,
               payment: data.payment,
-              totalRequests: data.totalRequests,
               timestamp: data.timestamp || Date.now(),
             });
 
-            logger.debug("x402 HTTP request broadcasted via SessionManager");
+            logger.debug("[x402-HTTP] Request broadcasted to dashboards (ONCE)");
+
+            // ✅ Return early to prevent any fallthrough
+            return;
           }
 
+          // ✅ Keep existing usage_report handler for WebSocket streaming
           if (data.type === "usage_report") {
             const { agentPubkey, amount, packetsDelivered } = data;
 
@@ -205,7 +245,7 @@ export function startServer(port: number, sessionManager: SessionManager) {
               agent: agentPubkey,
               amount,
               packets: packetsDelivered
-            }, "Received usage report from provider");
+            }, "Received usage report from provider (WebSocket)");
 
             const agentId = agentPubkey;
             const session = sessionManager.sessions.get(agentId);
@@ -218,24 +258,26 @@ export function startServer(port: number, sessionManager: SessionManager) {
                 agent: agentId,
                 consumed: session.spentOffchain.toString(),
                 packets: packetsDelivered
-              }, "Session updated with usage");
+              }, "WebSocket session updated with usage");
 
               if (session.spentOffchain.gte(sessionManager.getSettlementThreshold())) {
                 logger.info({
                   agent: agentId,
                   spent: session.spentOffchain.toString(),
-                  threshold: sessionManager.getSettlementThreshold().toString()
-                }, "🔥 Threshold exceeded, triggering settlement NOW");
+                }, "🔥 WebSocket threshold exceeded, triggering settlement");
 
                 await sessionManager.triggerSettlement(agentId);
               }
             } else {
               logger.warn({ agent: agentId }, "Usage report for unknown session");
             }
+
+            return; // ✅ Return early
           }
 
           if (data.type === "provider_session_start") {
             logger.info(data, "Provider started new session");
+            return; // ✅ Return early
           }
 
         } catch (e) {

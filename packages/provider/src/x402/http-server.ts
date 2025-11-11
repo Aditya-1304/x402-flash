@@ -8,6 +8,8 @@ export class X402HttpServer {
   private x402: X402Middleware;
   private facilitatorWs: WebSocket | null = null;
   private httpRequestCount = 0;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10;
 
   constructor(
     private port: number,
@@ -26,15 +28,15 @@ export class X402HttpServer {
     this.setupMiddleware();
     this.setupRoutes();
 
-    // Connect to facilitator if URL provided
     if (facilitatorUrl) {
-      setTimeout(() => this.connectToFacilitator(), 2000); // Give facilitator time to start
+      setTimeout(() => this.connectToFacilitator(), 2000);
     }
   }
 
   private connectToFacilitator() {
+    if (!this.facilitatorUrl) return;
+
     try {
-      // ✅ ADD ?type=provider query parameter
       const wsUrl = `${this.facilitatorUrl}?type=provider&provider=http-server`;
       console.log(`[x402-HTTP] Connecting to: ${wsUrl}`);
 
@@ -42,6 +44,7 @@ export class X402HttpServer {
 
       this.facilitatorWs.on('open', () => {
         console.log('✅ [x402-HTTP] Connected to facilitator as provider');
+        this.reconnectAttempts = 0;
       });
 
       this.facilitatorWs.on('error', (err) => {
@@ -49,12 +52,23 @@ export class X402HttpServer {
       });
 
       this.facilitatorWs.on('close', () => {
-        console.log('[x402-HTTP] Disconnected from facilitator, reconnecting...');
-        setTimeout(() => this.connectToFacilitator(), 5000);
+        console.log('[x402-HTTP] Disconnected from facilitator');
+
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++;
+          const delay = Math.min(5000 * this.reconnectAttempts, 30000);
+          console.log(`[x402-HTTP] Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+          setTimeout(() => this.connectToFacilitator(), delay);
+        }
       });
-    } catch (err) {
-      console.error('[x402-HTTP] Could not connect to facilitator:', err);
-      setTimeout(() => this.connectToFacilitator(), 5000);
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error('[x402-HTTP] Failed to connect to facilitator:', error.message);
+
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.reconnectAttempts++;
+        setTimeout(() => this.connectToFacilitator(), 5000);
+      }
     }
   }
 
@@ -62,20 +76,28 @@ export class X402HttpServer {
     this.httpRequestCount++;
 
     if (this.facilitatorWs?.readyState === WebSocket.OPEN) {
+      // ✅ Send clean x402_http_request message
+      // Facilitator will handle BOTH dashboard display AND settlement tracking
       const message = {
-        type: 'usage_report', // ✅ Same type as WebSocket streaming
-        agentPubkey: payment.vault, // Use vault as agent ID
-        amount: this.httpRequestCount * 1000, // Cumulative amount
-        packetsDelivered: this.httpRequestCount,
-        protocol: 'http_402', // Tag it as HTTP
+        type: 'x402_http_request',
         endpoint,
+        payment, // Contains vault, amount, nonce
         timestamp: Date.now(),
       };
 
-      console.log('[x402-HTTP] 📤 Sending usage report to facilitator:', message);
+      console.log('[x402-HTTP] 📤 Notifying facilitator:', {
+        endpoint,
+        vault: payment.vault.substring(0, 8) + '...',
+        amount: payment.amount,
+      });
+
       this.facilitatorWs.send(JSON.stringify(message));
     } else {
-      console.log('[x402-HTTP] ⚠️ Facilitator not connected (state:', this.facilitatorWs?.readyState, ')');
+      const state = this.facilitatorWs?.readyState;
+      const stateStr = state === WebSocket.CONNECTING ? 'CONNECTING' :
+        state === WebSocket.CLOSING ? 'CLOSING' :
+          state === WebSocket.CLOSED ? 'CLOSED' : 'UNKNOWN';
+      console.log(`[x402-HTTP] ⚠️ Cannot send to facilitator (state: ${stateStr})`);
     }
   }
 
@@ -83,7 +105,6 @@ export class X402HttpServer {
     this.app.use(cors());
     this.app.use(express.json());
 
-    // Logging middleware
     this.app.use((req, res, next) => {
       console.log(`[x402-HTTP] ${req.method} ${req.path}`);
       next();
@@ -91,7 +112,6 @@ export class X402HttpServer {
   }
 
   private setupRoutes() {
-    // Health check (no payment required)
     this.app.get('/health', (req, res) => {
       res.json({
         status: 'ok',
@@ -107,7 +127,6 @@ export class X402HttpServer {
       });
     });
 
-    // x402-protected endpoints
     this.app.get(
       '/api/ai-inference',
       this.x402.requirePayment,
@@ -132,7 +151,6 @@ export class X402HttpServer {
       this.handleAiInferencePost
     );
 
-    // Catch-all for undefined routes
     this.app.use((req, res) => {
       res.status(404).json({
         error: 'Not Found',
@@ -148,7 +166,7 @@ export class X402HttpServer {
 
   private handleAiInference = (req: express.Request, res: express.Response) => {
     const payment = (req as { x402Payment?: { vault: string; amount: number; nonce: number } }).x402Payment;
-    if (!payment) return res.status(500).json({ error: 'Payment missing' });
+    if (!payment) return res.status(500).json({ error: 'Payment info missing' });
 
     this.notifyFacilitator('/api/ai-inference', payment);
 
@@ -171,7 +189,7 @@ export class X402HttpServer {
 
   private handleMarketData = (req: express.Request, res: express.Response) => {
     const payment = (req as { x402Payment?: { vault: string; amount: number; nonce: number } }).x402Payment;
-    if (!payment) return res.status(500).json({ error: 'Payment missing' });
+    if (!payment) return res.status(500).json({ error: 'Payment info missing' });
 
     this.notifyFacilitator('/api/market-data', payment);
 
@@ -194,7 +212,7 @@ export class X402HttpServer {
 
   private handleSensorData = (req: express.Request, res: express.Response) => {
     const payment = (req as { x402Payment?: { vault: string; amount: number; nonce: number } }).x402Payment;
-    if (!payment) return res.status(500).json({ error: 'Payment missing' });
+    if (!payment) return res.status(500).json({ error: 'Payment info missing' });
 
     this.notifyFacilitator('/api/sensor-data', payment);
 
@@ -216,10 +234,11 @@ export class X402HttpServer {
 
   private handleAiInferencePost = (req: express.Request, res: express.Response) => {
     const payment = (req as { x402Payment?: { vault: string; amount: number; nonce: number } }).x402Payment;
-    if (!payment) return res.status(500).json({ error: 'Payment missing' });
+    if (!payment) return res.status(500).json({ error: 'Payment info missing' });
 
     const { prompt } = req.body;
     this.notifyFacilitator('/api/ai-inference (POST)', payment);
+
 
     res.json({
       type: 'ai-inference',
@@ -254,6 +273,8 @@ export class X402HttpServer {
       console.log(`  POST /api/ai-inference      (${process.env.PRICE_PER_PACKET} lamports)`);
       console.log(`  GET  /api/market-data       (${process.env.PRICE_PER_PACKET} lamports)`);
       console.log(`  GET  /api/sensor-data       (${process.env.PRICE_PER_PACKET} lamports)`);
+      console.log('');
+      console.log('💡 HTTP requests will trigger settlement when threshold reached');
       console.log('');
     });
   }
