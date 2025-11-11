@@ -12,7 +12,7 @@ Built for the [Solana x402 Hackathon](https://solana.com/hackathon) - A producti
 
 ## 📺 Demo
 
-**🎥 3-Minute Walkthrough**: [Watch Demo](https://youtu.be/YOUR_VIDEO_LINK)
+**🎥 3-Minute Walkthrough**: [Watch Demo](https://youtu.be/AWXsZQ1aN30)
 
 **🔗 Live Deployment**:
 - **Vault Address**: [`Dwo3TQ8kD7HFV1XzVoLqBdngiZ1vJtrvGed1feBVBgJL`](https://explorer.solana.com/address/Dwo3TQ8kD7HFV1XzVoLqBdngiZ1vJtrvGed1feBVBgJL?cluster=devnet)
