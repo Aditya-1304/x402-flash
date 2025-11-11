@@ -178,6 +178,26 @@ export function startServer(port: number, sessionManager: SessionManager) {
         try {
           const data = JSON.parse(message);
 
+          // NEW: Handle x402 HTTP requests from provider
+          if (data.type === "x402_http_request") {
+            logger.info({
+              endpoint: data.endpoint,
+              vault: data.payment?.vault,
+              totalRequests: data.totalRequests
+            }, "x402 HTTP request received from provider");
+
+            // ✅ Use the SAME broadcast method that works for settlements
+            sessionManager.broadcastToAllClients({
+              type: "x402_http_request",
+              endpoint: data.endpoint,
+              payment: data.payment,
+              totalRequests: data.totalRequests,
+              timestamp: data.timestamp || Date.now(),
+            });
+
+            logger.debug("x402 HTTP request broadcasted via SessionManager");
+          }
+
           if (data.type === "usage_report") {
             const { agentPubkey, amount, packetsDelivered } = data;
 
@@ -206,7 +226,6 @@ export function startServer(port: number, sessionManager: SessionManager) {
                   spent: session.spentOffchain.toString(),
                   threshold: sessionManager.getSettlementThreshold().toString()
                 }, "🔥 Threshold exceeded, triggering settlement NOW");
-
 
                 await sessionManager.triggerSettlement(agentId);
               }

@@ -1,64 +1,57 @@
-interface MetricsHistory {
-  totalPackets: number;
-  totalSettlements: number;
-  peakPacketsPerSec: number;
-  lastUpdate: number;
-  settlements: Array<{
-    txId: string;
-    amount: string;
-    timestamp: number;
-  }>;
+export interface Settlement {
+  txId: string;
+  amount: string;
+  timestamp: number;
 }
 
-const STORAGE_KEY = 'x402-metrics';
+export interface StoredMetrics {
+  totalPackets: number;
+  peakPacketsPerSec: number;
+  settlements: Settlement[];
+  totalSettlements: number;
+  httpRequests: number;
+  lastUpdate: number;
+}
 
-export function saveMetrics(metrics: Partial<MetricsHistory>): void {
+const STORAGE_KEY = 'x402-flash-metrics';
+
+export function saveMetrics(metrics: Partial<StoredMetrics>) {
   if (typeof window === 'undefined') return;
 
   const existing = loadMetrics();
   const updated = { ...existing, ...metrics, lastUpdate: Date.now() };
+
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 }
 
-export function loadMetrics(): MetricsHistory {
+export function loadMetrics(): StoredMetrics {
   if (typeof window === 'undefined') {
     return {
       totalPackets: 0,
-      totalSettlements: 0,
       peakPacketsPerSec: 0,
-      lastUpdate: 0,
       settlements: [],
+      totalSettlements: 0,
+      httpRequests: 0,
+      lastUpdate: Date.now(),
     };
   }
 
-  try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    if (!data) return getDefaultMetrics();
-
-    const parsed = JSON.parse(data);
-
-    // Reset if data is older than 1 hour
-    if (Date.now() - parsed.lastUpdate > 3600000) {
-      return getDefaultMetrics();
-    }
-
-    return parsed;
-  } catch {
-    return getDefaultMetrics();
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (!stored) {
+    return {
+      totalPackets: 0,
+      peakPacketsPerSec: 0,
+      settlements: [],
+      totalSettlements: 0,
+      httpRequests: 0,
+      lastUpdate: Date.now(),
+    };
   }
+
+  return JSON.parse(stored) as StoredMetrics;
 }
 
-export function clearMetrics(): void {
+export function clearMetrics() {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(STORAGE_KEY);
-}
-
-function getDefaultMetrics(): MetricsHistory {
-  return {
-    totalPackets: 0,
-    totalSettlements: 0,
-    peakPacketsPerSec: 0,
-    lastUpdate: 0,
-    settlements: [],
-  };
 }

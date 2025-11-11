@@ -1,12 +1,13 @@
 "use client";
 
-import { Activity, Zap, Users, CheckCircle } from "lucide-react";
+import { Activity, Zap, Users, CheckCircle, Globe } from "lucide-react";
 
 interface LiveMetricsProps {
   totalPackets: number;
   packetsPerSec: number;
   activeSessions: number;
   totalSettlements: number;
+  httpRequests: number;
 }
 
 export default function LiveMetrics({
@@ -14,6 +15,7 @@ export default function LiveMetrics({
   packetsPerSec,
   activeSessions,
   totalSettlements,
+  httpRequests,
 }: LiveMetricsProps) {
   const metrics = [
     {
@@ -40,10 +42,16 @@ export default function LiveMetrics({
       icon: CheckCircle,
       color: "from-purple-500 to-pink-500",
     },
+    {
+      label: "HTTP Requests",
+      value: httpRequests,
+      icon: Globe,
+      color: "from-cyan-500 to-blue-500",
+    },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
       {metrics.map((metric) => {
         const Icon = metric.icon;
         return (

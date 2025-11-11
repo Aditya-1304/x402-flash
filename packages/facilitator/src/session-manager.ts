@@ -356,6 +356,28 @@ export class SessionManager {
     this.broadcastToDashboards(metricsUpdate);
   }
 
+  public broadcastToAllClients(message: Record<string, unknown>): void {
+    const msgString = JSON.stringify(message);
+
+    // Broadcast to agent sessions
+    this.sessions.forEach((session) => {
+      if (session.ws.readyState === WebSocket.OPEN) {
+        session.ws.send(msgString);
+      }
+    });
+
+    // Broadcast to dashboard observers
+    this.dashboardObservers.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(msgString);
+      }
+    });
+
+    logger.debug({ messageType: message.type }, "Broadcasted message to all clients");
+  }
+
+
+
   public async cleanup(): Promise<void> {
     logger.info("Cleaning up session manager...");
 

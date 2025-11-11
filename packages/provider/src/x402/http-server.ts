@@ -1,16 +1,20 @@
 import express, { Express } from 'express';
 import cors from 'cors';
 import { X402Middleware } from './middleware';
+import WebSocket from 'ws';
 
 export class X402HttpServer {
   private app: Express;
   private x402: X402Middleware;
+  private facilitatorWs: WebSocket | null = null;
+  private httpRequestCount = 0;
 
   constructor(
     private port: number,
     pricePerRequest: number,
     destinationAccount: string,
-    merchantId: string
+    merchantId: string,
+    private facilitatorUrl?: string
   ) {
     this.app = express();
     this.x402 = new X402Middleware(
@@ -21,6 +25,58 @@ export class X402HttpServer {
 
     this.setupMiddleware();
     this.setupRoutes();
+
+    // Connect to facilitator if URL provided
+    if (facilitatorUrl) {
+      setTimeout(() => this.connectToFacilitator(), 2000); // Give facilitator time to start
+    }
+  }
+
+  private connectToFacilitator() {
+    try {
+      // ✅ ADD ?type=provider query parameter
+      const wsUrl = `${this.facilitatorUrl}?type=provider&provider=http-server`;
+      console.log(`[x402-HTTP] Connecting to: ${wsUrl}`);
+
+      this.facilitatorWs = new WebSocket(wsUrl);
+
+      this.facilitatorWs.on('open', () => {
+        console.log('✅ [x402-HTTP] Connected to facilitator as provider');
+      });
+
+      this.facilitatorWs.on('error', (err) => {
+        console.error('[x402-HTTP] Facilitator connection error:', err.message);
+      });
+
+      this.facilitatorWs.on('close', () => {
+        console.log('[x402-HTTP] Disconnected from facilitator, reconnecting...');
+        setTimeout(() => this.connectToFacilitator(), 5000);
+      });
+    } catch (err) {
+      console.error('[x402-HTTP] Could not connect to facilitator:', err);
+      setTimeout(() => this.connectToFacilitator(), 5000);
+    }
+  }
+
+  private notifyFacilitator(endpoint: string, payment: { vault: string; amount: number; nonce: number }) {
+    this.httpRequestCount++;
+
+    if (this.facilitatorWs?.readyState === WebSocket.OPEN) {
+      const message = {
+        type: 'usage_report', // ✅ Same type as WebSocket streaming
+        agentPubkey: payment.vault, // Use vault as agent ID
+        amount: this.httpRequestCount * 1000, // Cumulative amount
+        packetsDelivered: this.httpRequestCount,
+        protocol: 'http_402', // Tag it as HTTP
+        endpoint,
+        timestamp: Date.now(),
+      };
+
+      console.log('[x402-HTTP] 📤 Sending usage report to facilitator:', message);
+      this.facilitatorWs.send(JSON.stringify(message));
+    } else {
+      console.log('[x402-HTTP] ⚠️ Facilitator not connected (state:', this.facilitatorWs?.readyState, ')');
+    }
   }
 
   private setupMiddleware() {
@@ -41,6 +97,8 @@ export class X402HttpServer {
         status: 'ok',
         protocol: 'x402-flash',
         version: '1.0.0',
+        totalRequests: this.httpRequestCount,
+        facilitatorConnected: this.facilitatorWs?.readyState === WebSocket.OPEN,
         endpoints: {
           aiInference: '/api/ai-inference',
           marketData: '/api/market-data',
@@ -89,7 +147,10 @@ export class X402HttpServer {
   }
 
   private handleAiInference = (req: express.Request, res: express.Response) => {
-    const payment = (req as any).x402Payment;
+    const payment = (req as { x402Payment?: { vault: string; amount: number; nonce: number } }).x402Payment;
+    if (!payment) return res.status(500).json({ error: 'Payment missing' });
+
+    this.notifyFacilitator('/api/ai-inference', payment);
 
     res.json({
       type: 'ai-inference',
@@ -109,7 +170,10 @@ export class X402HttpServer {
   };
 
   private handleMarketData = (req: express.Request, res: express.Response) => {
-    const payment = (req as any).x402Payment;
+    const payment = (req as { x402Payment?: { vault: string; amount: number; nonce: number } }).x402Payment;
+    if (!payment) return res.status(500).json({ error: 'Payment missing' });
+
+    this.notifyFacilitator('/api/market-data', payment);
 
     res.json({
       type: 'market-data',
@@ -129,7 +193,10 @@ export class X402HttpServer {
   };
 
   private handleSensorData = (req: express.Request, res: express.Response) => {
-    const payment = (req as any).x402Payment;
+    const payment = (req as { x402Payment?: { vault: string; amount: number; nonce: number } }).x402Payment;
+    if (!payment) return res.status(500).json({ error: 'Payment missing' });
+
+    this.notifyFacilitator('/api/sensor-data', payment);
 
     res.json({
       type: 'sensor-reading',
@@ -148,8 +215,11 @@ export class X402HttpServer {
   };
 
   private handleAiInferencePost = (req: express.Request, res: express.Response) => {
-    const payment = (req as any).x402Payment;
+    const payment = (req as { x402Payment?: { vault: string; amount: number; nonce: number } }).x402Payment;
+    if (!payment) return res.status(500).json({ error: 'Payment missing' });
+
     const { prompt } = req.body;
+    this.notifyFacilitator('/api/ai-inference (POST)', payment);
 
     res.json({
       type: 'ai-inference',
@@ -176,6 +246,7 @@ export class X402HttpServer {
       console.log('============================');
       console.log(`Port:              ${this.port}`);
       console.log(`Protocol:          x402-flash (HTTP 402 compatible)`);
+      console.log(`Facilitator:       ${this.facilitatorUrl || 'Not configured'}`);
       console.log('');
       console.log('📋 Endpoints:');
       console.log(`  GET  /health                (no payment)`);
@@ -183,10 +254,6 @@ export class X402HttpServer {
       console.log(`  POST /api/ai-inference      (${process.env.PRICE_PER_PACKET} lamports)`);
       console.log(`  GET  /api/market-data       (${process.env.PRICE_PER_PACKET} lamports)`);
       console.log(`  GET  /api/sensor-data       (${process.env.PRICE_PER_PACKET} lamports)`);
-      console.log('');
-      console.log('💡 Test with:');
-      console.log(`  curl http://localhost:${this.port}/health`);
-      console.log(`  curl http://localhost:${this.port}/api/market-data`);
       console.log('');
     });
   }
